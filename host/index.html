@@ -5,8 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Knowledge Vault</title>
     <link rel="icon" type="image/png" href="/vault-icon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <script>
+      // Theme before first paint. The stored choice is reactor-browser's `ph:theme`
+      // (what the vault app's useTheme reads); dark is the default — the app's own.
+      // `data-bai-theme` on <html> makes the app's colour tokens resolve for the shell.
+      (function () {
+        var key = "ph:theme", stored = null;
+        try {
+          stored = localStorage.getItem(key);
+          if (!stored) { stored = "dark"; localStorage.setItem(key, stored); }
+        } catch (_) { stored = stored || "dark"; }
+        var dark = stored === "dark" || (stored === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        root.classList.toggle("dark", dark);
+        root.dataset.baiTheme = dark ? "dark" : "light";
+        root.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

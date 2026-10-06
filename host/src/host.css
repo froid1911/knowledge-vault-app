@@ -1,14 +1,31 @@
-/* host/src/host.css — Phase 0 chrome only; the designed landing arrives in Phase 1 */
-:root { font-family: Inter, system-ui, sans-serif; color: #1C2128; background: #F7F8F6; }
+/* host/src/host.css — Phase 0 chrome. Colours only through the vault app's tokens (spec §5.7); they
+   resolve from `data-bai-theme` on <html> (index.html before first paint, boot.tsx afterwards).
+   The designed landing arrives in Phase 1. */
+html { background: var(--bai-bg, Canvas); color: var(--bai-text, CanvasText); font-family: Inter, system-ui, sans-serif; }
 body, #root { margin: 0; height: 100vh; }
+
 .kv-landing { max-width: 1040px; margin: 0 auto; padding: 32px 24px; }
-.kv-vaults { list-style: none; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-.kv-vaults button { width: 100%; text-align: left; padding: 16px; border: 1px solid #D5D9D7; border-radius: 8px; background: white; cursor: pointer; }
-.kv-vaults button:focus-visible, .kv-new-vault button:focus-visible { outline: 2px solid #2F6F8F; outline-offset: 2px; }
+.kv-landing h1 { font-size: 20px; font-weight: 600; margin: 0 0 24px; }
+.kv-landing h2 { font-size: 14px; font-weight: 600; color: var(--bai-text-tertiary); margin: 0 0 12px; }
+.kv-vaults { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.kv-vaults button { width: 100%; text-align: left; padding: 16px; border: 1px solid var(--bai-border); border-radius: 8px; background: var(--bai-surface); color: var(--bai-text); cursor: pointer; font: inherit; }
+.kv-vaults button:hover { background: var(--bai-hover); }
 .kv-vault-name { display: block; font-weight: 600; }
-.kv-vault-meta { color: #5B6670; font-size: 14px; }
+.kv-vault-meta { color: var(--bai-text-tertiary); font-size: 14px; }
 .kv-new-vault { display: flex; gap: 8px; align-items: center; margin-top: 24px; }
+.kv-new-vault input { padding: 8px 10px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); font: inherit; }
+.kv-new-vault button, .kv-appbar button { padding: 8px 12px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); cursor: pointer; font: inherit; }
+.kv-new-vault button:not(:disabled) { background: var(--bai-accent); color: var(--bai-accent-text); border-color: transparent; }
+.kv-new-vault button:disabled { color: var(--bai-text-muted); cursor: default; }
+.kv-landing [role="alert"] { color: var(--bai-danger); }
+:is(.kv-vaults, .kv-new-vault, .kv-appbar) :is(button, input):focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 2px; }
+
+.kv-engine { height: 100vh; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px; margin: 0; }
+.kv-engine-title { font-size: 18px; font-weight: 600; margin: 0; }
+.kv-engine[data-kind="alert"] .kv-engine-title { color: var(--bai-danger); }
+.kv-engine-detail { color: var(--bai-text-tertiary); margin: 0; max-width: 48ch; }
+
 .kv-vault-screen { display: flex; flex-direction: column; height: 100vh; }
-.kv-appbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #D5D9D7; background: white; }
+.kv-appbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--bai-border); background: var(--bai-surface); }
 .kv-appbar-title { font-weight: 600; }
 .kv-app { flex: 1; min-height: 0; }

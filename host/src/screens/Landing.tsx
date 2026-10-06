@@ -11,7 +11,7 @@ export function Landing({ info, onOpen }: { info: SidecarInfo; onOpen: (v: Vault
     let alive = true;
     fetchVaults(info)
       .then((v) => alive && setVaults(v))
-      .catch((e: Error) => alive && setError(e.message));
+      .catch((e: Error) => alive && setError(`Could not load the vaults: ${e.message}`));
     return () => { alive = false; };
   }, [info]);
 
@@ -22,7 +22,7 @@ export function Landing({ info, onOpen }: { info: SidecarInfo; onOpen: (v: Vault
       setName("");
       onOpen(v);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(`Could not create the vault: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -31,7 +31,7 @@ export function Landing({ info, onOpen }: { info: SidecarInfo; onOpen: (v: Vault
       <header><h1>Knowledge Vault</h1></header>
       <section aria-labelledby="vaults-heading">
         <h2 id="vaults-heading">Vaults</h2>
-        {vaults === null && !error && <p role="status">Starting the engine…</p>}
+        {vaults === null && !error && <p role="status">Loading vaults…</p>}
         {error && <p role="alert">{error}</p>}
         {vaults && vaults.length === 0 && <p>No vaults yet. Create your first vault below.</p>}
         <ul className="kv-vaults">
