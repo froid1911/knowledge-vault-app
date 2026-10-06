@@ -112,6 +112,7 @@ async function registryMetadata(
   const body = (await res.json()) as { dist?: { tarball?: string; integrity?: string } };
   if (!body.dist?.tarball || !body.dist.integrity) throw new Error(`The registry's metadata for ${name}@${version} has no tarball or integrity.`);
   const pin = pins[`${name}@${version}`];
+  if (Object.keys(pins).length > 0 && !pin) throw new IntegrityError(`No pinned integrity for ${name}@${version} — refusing to download an unpinned package.`);
   if (pin && pin !== body.dist.integrity) throw new IntegrityError(`The registry's integrity for ${name}@${version} differs from the one this app pins — refusing to download it.`);
   return { tarball: body.dist.tarball, integrity: body.dist.integrity };
 }

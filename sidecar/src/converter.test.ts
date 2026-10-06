@@ -289,6 +289,36 @@ describe("converter manager — starting and stopping do not race", () => {
     expect(h.urls.at(-1)).toBeNull();
     expect((await h.manager.status()).state).toBe("off");
   });
+  it("switching off while a spawned helper has not answered yet stops it at once, not after the ready deadline", async () => {
+    const h = harness({
+      fetchImpl: async () => {
+        throw new Error("ECONNREFUSED"); // never answers; the clock does not move, so the deadline never comes
+      },
+      readyTimeoutMs: 30_000,
+    });
+    const on = h.manager.apply({ mode: "local", remoteUrl: "" });
+    await tick();
+    expect(h.spawns).toHaveLength(1);
+    const started = Date.now();
+    await h.manager.apply({ mode: "off", remoteUrl: "" });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(h.children[0]!.killed).toEqual(["SIGTERM"]);
+    await on;
+    expect(await h.manager.status()).toMatchObject({ mode: "off", state: "off", pid: null });
+    expect(h.urls.at(-1)).toBeNull();
+  });
+  it("local → off → local while the port is being picked ends with one running helper", async () => {
+    const port = deferredPort();
+    const h = harness({ pickPort: port.pickPort });
+    const a = h.manager.apply({ mode: "local", remoteUrl: "" });
+    const b = h.manager.apply({ mode: "off", remoteUrl: "" });
+    const c = h.manager.apply({ mode: "local", remoteUrl: "" });
+    port.resolve(5999);
+    await Promise.all([a, b, c]);
+    expect(h.spawns).toHaveLength(1);
+    expect(await h.manager.status()).toMatchObject({ mode: "local", state: "ready", url: "http://127.0.0.1:5999" });
+    expect(h.urls.at(-1)).toBe("http://127.0.0.1:5999");
+  });
   it("a helper that cannot be spawned is reported as down, not thrown", async () => {
     const h = harness({
       spawn: () => {
@@ -301,13 +331,6 @@ describe("converter manager — starting and stopping do not race", () => {
       },
       readyTimeoutMs: 200,
     });
-    let advance = (_ms: number): void => {};
-    advance = (ms) => void h.advance(ms);
-    const fetchAdvancing = async () => {
-      advance(100);
-      throw new Error("ECONNREFUSED");
-    };
-    void fetchAdvancing;
     await h.manager.apply({ mode: "local", remoteUrl: "" });
     const status = await h.manager.status();
     expect(status.state).toBe("down");

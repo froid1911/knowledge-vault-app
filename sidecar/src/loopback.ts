@@ -21,7 +21,7 @@ export function bindLoopbackOnly(port: number, host = "127.0.0.1"): () => void {
       const rest = typeof second === "function" || second === undefined ? args.slice(typeof second === "function" ? 1 : 2) : args.slice(1);
       return original.apply(this, [first, host, ...rest] as never) as Server;
     }
-    if (first && typeof first === "object" && (first as { port?: unknown }).port === port && !(first as { host?: unknown }).host) {
+    if (first && typeof first === "object" && Number((first as { port?: unknown }).port) === port && !(first as { host?: unknown }).host) {
       return original.apply(this, [{ ...(first as object), host }, ...args.slice(1)] as never) as Server;
     }
     return original.apply(this, args as never);

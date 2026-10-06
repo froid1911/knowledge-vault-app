@@ -49,7 +49,7 @@ describe("bindLoopbackOnly", () => {
     servers.length = 0;
     const b = createHttpServer();
     servers.push(b);
-    expect((await listening(b, { port: engine })).address).toBe("127.0.0.1"); // options form without a host
+    expect((await listening(b, { port: String(engine) })).address).toBe("127.0.0.1"); // options form without a host, port as a string
     await new Promise<void>((r) => b.close(() => r()));
     servers.length = 0;
     restore();

@@ -79,6 +79,7 @@ async function fakeRegistry(opts: { dropOnceAt?: number; wrongIntegrity?: boolea
   const port = await new Promise<number>((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port)));
   return {
     registry: `http://127.0.0.1:${port}`,
+    integrity: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [`${name}@1.58.0`, sri(bytes)])),
     requests,
     close: () =>
       new Promise<void>((r) => {
@@ -150,6 +151,14 @@ describe("installBinding — never hangs, never trusts a changed registry", () =
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(reg.requests.filter((r) => r.url === "/tgz/docling.rs")).toHaveLength(2);
     expect(existsSync(join(dir, "node_modules"))).toBe(false);
+  });
+
+  it("refuses a package that has no pin when pins are in force", async () => {
+    const reg = await fakeRegistry();
+    closers.push(reg.close);
+    const dir = mkdtemp("kv-conv-");
+    await expect(installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, pins: { "docling.rs@1.58.0": reg.integrity["docling.rs@1.58.0"]! } })).rejects.toThrow(/No pinned integrity for docling\.rs-linux-x64-gnu/);
+    expect(reg.requests.some((r) => r.url === "/tgz/docling.rs-linux-x64-gnu")).toBe(false);
   });
 
   it("refuses a registry answer whose integrity differs from the pinned one, before downloading anything", async () => {

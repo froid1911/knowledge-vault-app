@@ -168,14 +168,26 @@ export function createConverterManager(deps: ConverterDeps) {
   let logStream: WriteStream | null = null;
   let generation = 0;
 
-  /** One start at a time: a second caller joins the one in flight; stop() can cancel it before the spawn. */
-  function start(): Promise<void> {
-    if (child) return Promise.resolve();
-    if (starting) return starting;
-    starting = startNow().finally(() => {
-      starting = null;
-    });
-    return starting;
+  /**
+   * One start at a time: a second caller joins the one in flight. If that one
+   * was cancelled by a stop() meanwhile and local mode is wanted again, the
+   * caller starts afresh instead of inheriting a start that spawned nothing.
+   */
+  async function start(): Promise<void> {
+    for (;;) {
+      if (child) return;
+      if (starting) {
+        await starting.catch(() => undefined);
+        if (child || state === "down" || mode !== "local") return;
+        continue;
+      }
+      if (mode !== "local") return;
+      const run = startNow().finally(() => {
+        starting = null;
+      });
+      starting = run;
+      return run;
+    }
   }
 
   async function startNow(): Promise<void> {
@@ -222,17 +234,19 @@ export function createConverterManager(deps: ConverterDeps) {
     });
     const deadline = now() + readyTimeoutMs;
     while (child === proc) {
+      let ok = false;
       try {
-        const res = await fetchImpl(`${url}/health`, { signal: AbortSignal.timeout(2_000) });
-        if (res.ok) {
-          localUrl = url;
-          state = "ready";
-          if (mode === "local") deps.setEngineUrl(url);
-          log(`ready at ${url} (pid ${proc.pid ?? "?"})`);
-          return;
-        }
+        ok = (await fetchImpl(`${url}/health`, { signal: AbortSignal.timeout(2_000) })).ok;
       } catch {
         // not listening yet
+      }
+      if (child !== proc) return; // stopped while we were asking
+      if (ok) {
+        localUrl = url;
+        state = "ready";
+        if (mode === "local") deps.setEngineUrl(url);
+        log(`ready at ${url} (pid ${proc.pid ?? "?"})`);
+        return;
       }
       if (now() >= deadline) {
         error = `the converter did not answer within ${Math.round(readyTimeoutMs / 1000)} s`;
@@ -271,23 +285,31 @@ export function createConverterManager(deps: ConverterDeps) {
   }
 
   async function stop(): Promise<void> {
-    generation++; // a start still picking its port must not spawn, and the current child's exit is ours to handle here
-    if (starting) await starting.catch(() => undefined);
+    generation++; // a start still picking its port spawns nothing; the current child's exit is ours to handle here
     const proc = child;
     if (!proc) {
+      // Nothing spawned yet: let a start that is picking its port notice the bump and finish.
+      if (starting) await starting.catch(() => undefined);
       if (state !== "down") state = "off";
       return;
     }
     stopping = true;
-    const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
+    child = null; // the ready poll, if still running, stops at its next look instead of waiting out its deadline
+    localUrl = null;
+    let exited = false;
+    const exit = new Promise<void>((resolve) =>
+      proc.once("exit", () => {
+        exited = true;
+        resolve();
+      }),
+    );
     proc.kill("SIGTERM");
     const forced = sleep(stopTimeoutMs).then(() => {
-      if (child === proc) proc.kill("SIGKILL");
+      if (!exited) proc.kill("SIGKILL");
     });
-    await Promise.race([exited, forced.then(() => exited)]);
+    await Promise.race([exit, forced.then(() => exit)]);
+    if (starting) await starting.catch(() => undefined);
     stopping = false;
-    child = null;
-    localUrl = null;
     state = "off";
   }
 
