@@ -114,12 +114,17 @@ export function generativeConstellation(seed: string, count: number): { ids: str
   const rnd = mulberry32(hash32(`generative:${seed}`));
   const ids = Array.from({ length: count }, (_, i) => `g${i}`);
   const edges: [string, string][] = [];
-  for (let i = 1; i < count; i++) edges.push([ids[Math.floor(rnd() * i)]!, ids[i]!]);
+  const seen = new Set<string>();
+  const push = (a: number, b: number): void => {
+    // Ordered by index, so a cross link never duplicates a tree edge (React keys edges by their pair).
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    const key = `${lo}-${hi}`;
+    if (lo === hi || seen.has(key)) return;
+    seen.add(key);
+    edges.push([ids[lo]!, ids[hi]!]);
+  };
+  for (let i = 1; i < count; i++) push(Math.floor(rnd() * i), i);
   const extra = Math.floor(count / 5);
-  for (let e = 0; e < extra; e++) {
-    const a = Math.floor(rnd() * count);
-    const b = Math.floor(rnd() * count);
-    if (a !== b) edges.push([ids[a]!, ids[b]!]);
-  }
+  for (let e = 0; e < extra; e++) push(Math.floor(rnd() * count), Math.floor(rnd() * count));
   return { ids, edges };
 }

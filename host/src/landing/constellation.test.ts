@@ -49,3 +49,16 @@ describe("generativeConstellation", () => {
     expect(generativeConstellation("empty-vault", 14)).toEqual(g);
   });
 });
+
+describe("generativeConstellation", () => {
+  it("never repeats an edge — React keys the lines by their pair", () => {
+    for (const seed of ["a", "research-notes", "c5893e1b", "E2E vault"]) {
+      for (const count of [18, 34]) {
+        const { edges } = generativeConstellation(seed, count);
+        const keys = edges.map(([a, b]) => `${a}-${b}`);
+        expect(new Set(keys).size, `${seed}/${count}`).toBe(keys.length);
+        expect(edges.every(([a, b]) => a !== b)).toBe(true);
+      }
+    }
+  });
+});
