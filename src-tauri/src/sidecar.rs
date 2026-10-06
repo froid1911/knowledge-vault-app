@@ -17,6 +17,39 @@ pub struct ReadyInfo {
 pub struct SidecarState {
     pub ready: Option<ReadyInfo>,
     pub child: Option<CommandChild>,
+    /// True from spawn until the Terminated event — the only reliable "is it alive".
+    pub running: bool,
+    pub exit_code: Option<i32>,
+}
+
+/// What the host sees: `starting` (spawned, no readiness line yet), `ready`, or `exited` (with the code).
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidecarStatus {
+    pub state: &'static str,
+    pub ready: Option<ReadyInfo>,
+    pub code: Option<i32>,
+}
+
+pub fn status_of(ready: Option<ReadyInfo>, running: bool, code: Option<i32>) -> SidecarStatus {
+    let state = if ready.is_some() {
+        "ready"
+    } else if running {
+        "starting"
+    } else {
+        "exited"
+    };
+    SidecarStatus { state, ready, code }
+}
+
+fn snapshot(app: &AppHandle) -> SidecarStatus {
+    let st = app.state::<Mutex<SidecarState>>();
+    let st = st.lock().unwrap();
+    status_of(st.ready.clone(), st.running, st.exit_code)
+}
+
+fn emit_status(app: &AppHandle) {
+    let _ = app.emit("sidecar:status", snapshot(app));
 }
 
 pub struct SidecarEnv;
@@ -60,14 +93,7 @@ pub fn parse_ready_line(line: &str) -> Option<(u16, u16)> {
     Some((port, control))
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Status {
-    state: &'static str,
-    code: Option<i32>,
-}
-
-/// Spawn `node <sidecar_main>` with the env (cwd = sidecar/), relay readiness and exit as `sidecar:status` events.
+/// Spawn `node <sidecar_main>` with the env (cwd = sidecar/); relay readiness and exit as `sidecar:status` events.
 pub fn spawn_sidecar(
     app: &AppHandle,
     paths: &AppPaths,
@@ -76,7 +102,8 @@ pub fn spawn_sidecar(
     app_version: &str,
 ) -> tauri::Result<()> {
     let env = SidecarEnv::build(paths, &ports, &token, app_version);
-    // cwd = sidecar/ (dist/main.js → ..): package names resolve through the workspace's node_modules.
+    // cwd = sidecar/ (dist/main.js → ..): the sidecar resolves its own modules from there.
+    // The engine's environment is scrubbed by the sidecar itself (environment.ts), whoever spawns it.
     let sidecar_dir = paths
         .sidecar_main
         .parent()
@@ -94,15 +121,13 @@ pub fn spawn_sidecar(
     let (mut rx, child) = cmd.spawn().map_err(|e| tauri::Error::Anyhow(e.into()))?;
     {
         let state = app.state::<Mutex<SidecarState>>();
-        state.lock().unwrap().child = Some(child);
+        let mut st = state.lock().unwrap();
+        st.child = Some(child);
+        st.running = true;
+        st.exit_code = None;
+        st.ready = None;
     }
-    let _ = app.emit(
-        "sidecar:status",
-        Status {
-            state: "starting",
-            code: None,
-        },
-    );
+    emit_status(app);
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -116,13 +141,7 @@ pub fn spawn_sidecar(
                             control_token: token.clone(),
                         };
                         handle.state::<Mutex<SidecarState>>().lock().unwrap().ready = Some(info);
-                        let _ = handle.emit(
-                            "sidecar:status",
-                            Status {
-                                state: "ready",
-                                code: None,
-                            },
-                        );
+                        emit_status(&handle);
                     } else {
                         print!("[sidecar] {line}");
                     }
@@ -131,17 +150,15 @@ pub fn spawn_sidecar(
                     eprint!("[sidecar] {}", String::from_utf8_lossy(&bytes))
                 }
                 CommandEvent::Terminated(payload) => {
-                    let state = handle.state::<Mutex<SidecarState>>();
-                    let mut st = state.lock().unwrap();
-                    st.ready = None;
-                    st.child = None;
-                    let _ = handle.emit(
-                        "sidecar:status",
-                        Status {
-                            state: "exited",
-                            code: payload.code,
-                        },
-                    );
+                    {
+                        let state = handle.state::<Mutex<SidecarState>>();
+                        let mut st = state.lock().unwrap();
+                        st.ready = None;
+                        st.child = None;
+                        st.running = false;
+                        st.exit_code = payload.code;
+                    }
+                    emit_status(&handle);
                 }
                 _ => {}
             }
@@ -150,7 +167,17 @@ pub fn spawn_sidecar(
     Ok(())
 }
 
-/// Graceful stop: a `stop` line is the sidecar's stop request (its stdin EOF is the other); wait up to 15 s, then kill.
+const STOP_POLLS: u32 = 75;
+const STOP_POLL_MS: u64 = 200;
+
+/// Keep waiting for a graceful exit while the child is alive and the 15 s grace period (75 × 200 ms) has not run out.
+pub fn keep_waiting(running: bool, polls: u32) -> bool {
+    running && polls < STOP_POLLS
+}
+
+/// Graceful stop: a `stop` line is the sidecar's stop request (its stdin EOF is the other); wait for the
+/// child to terminate, then kill whatever is left. Keyed on the child's life, not on readiness — a sidecar
+/// still booting (first-run initdb, the moment a kill hurts most) gets the same grace period.
 pub fn stop_sidecar(app: &AppHandle) {
     let child = app
         .state::<Mutex<SidecarState>>()
@@ -160,32 +187,57 @@ pub fn stop_sidecar(app: &AppHandle) {
         .take();
     if let Some(mut child) = child {
         let _ = child.write(b"stop\n");
-        // The Terminated event clears `ready`; wait up to 15 s (75 × 200 ms) for it.
-        for _ in 0..75 {
-            if app
-                .state::<Mutex<SidecarState>>()
-                .lock()
-                .unwrap()
-                .ready
-                .is_none()
-            {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
+        let mut polls = 0;
+        while keep_waiting(
+            app.state::<Mutex<SidecarState>>().lock().unwrap().running,
+            polls,
+        ) {
+            std::thread::sleep(std::time::Duration::from_millis(STOP_POLL_MS));
+            polls += 1;
         }
         let _ = child.kill();
     }
 }
 
 #[tauri::command]
-pub fn sidecar_info(state: tauri::State<'_, Mutex<SidecarState>>) -> Option<ReadyInfo> {
-    state.lock().unwrap().ready.clone()
+pub fn sidecar_info(state: tauri::State<'_, Mutex<SidecarState>>) -> SidecarStatus {
+    let st = state.lock().unwrap();
+    status_of(st.ready.clone(), st.running, st.exit_code)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    fn ready() -> ReadyInfo {
+        ReadyInfo {
+            port: 4201,
+            control_port: 4202,
+            control_token: "t".into(),
+        }
+    }
+
+    #[test]
+    fn status_is_starting_then_ready_then_exited_with_the_code() {
+        assert_eq!(status_of(None, true, None).state, "starting");
+        let s = status_of(Some(ready()), true, None);
+        assert_eq!(s.state, "ready");
+        assert_eq!(s.ready.map(|r| r.port), Some(4201));
+        let s = status_of(None, false, Some(1));
+        assert_eq!(s.state, "exited");
+        assert_eq!(s.code, Some(1));
+        // A sidecar adopted from the dev loop was never spawned here: ready, not running — still "ready".
+        assert_eq!(status_of(Some(ready()), false, None).state, "ready");
+    }
+
+    #[test]
+    fn stop_waits_only_while_the_child_lives_and_within_the_grace_period() {
+        assert!(keep_waiting(true, 0));
+        assert!(keep_waiting(true, 74));
+        assert!(!keep_waiting(true, 75));
+        assert!(!keep_waiting(false, 0));
+    }
 
     #[test]
     fn parses_the_ready_line_and_skips_everything_else() {
