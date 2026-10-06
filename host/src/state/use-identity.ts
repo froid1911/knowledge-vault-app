@@ -72,6 +72,9 @@ export function useIdentity(info: SidecarInfo | undefined, api: IdentityApi = re
   return { status, error, refresh, signIn, cancel, signOut };
 }
 
+/** What the one identity hook instance (owned by App) hands to the screens. */
+export type IdentityController = ReturnType<typeof useIdentity>;
+
 /** 0x7A3f…9c4 — enough to recognise, short enough for a chip. */
 export function shortAddress(address: string): string {
   return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;

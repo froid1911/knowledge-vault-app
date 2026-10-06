@@ -33,6 +33,10 @@ export function App({ info, client }: { info: SidecarInfo; client: GraphQLReacto
     () => (identity.status?.authenticated && identity.status.address ? { address: identity.status.address, ...(identity.status.did ? { did: identity.status.did } : {}) } : undefined),
     [identity.status?.authenticated, identity.status?.address, identity.status?.did],
   );
+  // Coming back to a shell screen re-reads the sign-in state (a flow may have completed meanwhile).
+  useEffect(() => {
+    if (!inWorkspace) void identity.refresh();
+  }, [inWorkspace, route.name, identity.refresh]);
   // The vault package reads who we are from the host declaration (gate, Access view, live feed).
   // A remote workspace declares its own origin and bearer while it is open.
   useEffect(() => {
@@ -66,7 +70,7 @@ export function App({ info, client }: { info: SidecarInfo; client: GraphQLReacto
       screen = <RemoteRoute info={info} id={route.id} identity={hostIdentity} onBack={toVaults} onSettings={toSettings} />;
       break;
     case "settings":
-      screen = <Settings info={info} section={route.section} onSection={(section) => navigate({ name: "settings", section })} onBack={toVaults} onOpenWorkflows={toWorkflows} />;
+      screen = <Settings info={info} section={route.section} onSection={(section) => navigate({ name: "settings", section })} onBack={toVaults} onOpenWorkflows={toWorkflows} identity={identity} />;
       break;
     default:
       screen = (

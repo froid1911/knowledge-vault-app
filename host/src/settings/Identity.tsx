@@ -1,13 +1,14 @@
 import { useState } from "react";
-import type { SidecarInfo } from "../sidecar.js";
-import { realIdentityApi, shortAddress, useIdentity, type IdentityApi } from "../state/use-identity.js";
+import { shortAddress, type IdentityController } from "../state/use-identity.js";
 
 /**
  * Sign in with Renown: the engine opens the system browser, the user signs with
  * their wallet, the engine keeps the credential. Nothing here holds a key.
  */
-export function IdentitySection({ info, api = realIdentityApi }: { info: SidecarInfo; api?: IdentityApi }) {
-  const { status, error, signIn, cancel, signOut } = useIdentity(info, api);
+export function IdentitySection({ identity }: { identity: IdentityController }) {
+  // One hook instance for the whole app (App owns it): the landing's chip and the
+  // host declaration see the sign-in the moment this section completes it.
+  const { status, error, signIn, cancel, signOut } = identity;
   const [copied, setCopied] = useState(false);
   if (!status) return <p className="kv-quiet" role="status">{error ? `Could not read the sign-in state: ${error}` : "…"}</p>;
 

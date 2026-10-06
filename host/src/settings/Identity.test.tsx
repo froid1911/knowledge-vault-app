@@ -2,8 +2,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IdentityStatus } from "../api/identity.js";
-import type { IdentityApi } from "../state/use-identity.js";
+import { useIdentity, type IdentityApi } from "../state/use-identity.js";
 import { IdentitySection } from "./Identity.js";
+
+/** The app owns one identity hook; the section receives it. A fast poll keeps the test quick. */
+function Harness({ api }: { api: IdentityApi }) {
+  const identity = useIdentity(info, api, 50);
+  return <IdentitySection identity={identity} />;
+}
 
 const info = { origin: "http://127.0.0.1:4301", graphqlUrl: "http://127.0.0.1:4301/graphql", controlOrigin: "http://127.0.0.1:4302", controlToken: "t" };
 afterEach(() => cleanup());
@@ -17,7 +23,7 @@ describe("IdentitySection", () => {
       cancelLogin: vi.fn(async () => { status = { ...status, pending: null }; }),
       logout: vi.fn(async () => { status = { authenticated: false, appDid: "did:key:z6Mk-app", renownUrl: "https://www.renown.id", pending: null }; }),
     };
-    render(<IdentitySection info={info} api={api} />);
+    render(<Harness api={api} />);
     fireEvent.click(await screen.findByRole("button", { name: "Sign in with Renown" }));
     expect(await screen.findByText("Waiting for the browser…")).toBeTruthy();
     expect((screen.getByRole("link", { name: "open the sign-in page" }) as HTMLAnchorElement).href).toBe("https://www.renown.id/#/login?session=abc");

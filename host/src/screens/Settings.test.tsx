@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettingsApi } from "./Settings.js";
 import { Settings } from "./Settings.js";
 import type { SettingsSection } from "../shell/router.js";
+import { useIdentity, type IdentityApi } from "../state/use-identity.js";
 import { useState } from "react";
 
 const theme = vi.hoisted(() => ({ setTheme: vi.fn(), current: "dark" as string, isSystem: false }));
@@ -23,9 +24,16 @@ function api(over: Partial<SettingsApi> = {}): SettingsApi {
     ...over,
   };
 }
+const identityApi: IdentityApi = {
+  fetchAuthStatus: vi.fn(async () => ({ authenticated: false, appDid: "did:key:z", renownUrl: "https://www.renown.id", pending: null })),
+  startLogin: vi.fn(async () => ({ alreadyAuthenticated: false })),
+  cancelLogin: vi.fn(async () => ({})),
+  logout: vi.fn(async () => ({})),
+};
 function Harness({ api: a, start = "vaults" }: { api: SettingsApi; start?: SettingsSection }) {
   const [section, setSection] = useState<SettingsSection>(start);
-  return <Settings info={info} section={section} onSection={setSection} onBack={() => {}} onOpenWorkflows={() => {}} api={a} />;
+  const identity = useIdentity(info, identityApi);
+  return <Settings info={info} section={section} onSection={setSection} onBack={() => {}} onOpenWorkflows={() => {}} api={a} identity={identity} />;
 }
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
