@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -10,13 +10,25 @@ import { join } from "node:path";
  * Its final step imports `docling.rs` to verify the models — hence the hook
  * and the binding first.
  */
-export const DOWNLOAD_SCRIPT_SHA256 = "06e59866aff3ec7b79f68a6aaae5c0ad8cdc89667f429ef53d412b6de9fd59b6"; // upstream master, 2026-10-06
+/**
+ * The download script of the binding's own version (v1.58.0), not master: the
+ * 1.100 line's script no longer fetches pdfium, which the 1.58 binding needs —
+ * verified the hard way (720 MB fetched, `missing: ["pdfium"]`). Both the URL
+ * and the hash are pinned; a changed script fails closed.
+ */
+export const DOWNLOAD_SCRIPT_URL = "https://raw.githubusercontent.com/docling-project/docling.rs/v1.58.0/scripts/install/download_dependencies.sh";
+export const DOWNLOAD_SCRIPT_SHA256 = "a56bd5ee5039f3bffae5adb58d7c9f6d18261ecb1db04d2c807865147613e963";
 
 export type ModelsProgress = { file: string | null; bytes: number; lines: string[] };
 
-/** docling.rs's layout model is the one every PDF needs; its presence is "installed". */
+/**
+ * Installed means the fetcher's own verification passed (it writes nothing of
+ * its own, so this module leaves a marker) and the layout model every PDF
+ * needs is still there. Files alone are not enough: a partial set reports
+ * `ready: false` from the binding — the 720 MB without pdfium taught that.
+ */
 export function modelsInstalled(modelsDir: string): boolean {
-  return existsSync(join(modelsDir, ".models", "layout_heron.onnx"));
+  return existsSync(join(modelsDir, "models.json")) && existsSync(join(modelsDir, ".models", "layout_heron.onnx"));
 }
 
 export function removeModels(modelsDir: string): void {
@@ -62,6 +74,7 @@ export type InstallModelsOptions = {
   nodePath: string;
   env: Record<string, string>;
   scriptSha256?: string;
+  scriptUrl?: string;
   spawn?: typeof spawn;
   onProgress?: (progress: ModelsProgress) => void;
   pollMs?: number;
@@ -78,6 +91,7 @@ export function installModels(opts: InstallModelsOptions): Promise<void> {
         DOCLING_RS_HOME: opts.modelsDir,
         CONVERTER_MODULES_DIR: opts.modulesDir,
         DOCLING_DOWNLOAD_SCRIPT_SHA256: opts.scriptSha256 ?? DOWNLOAD_SCRIPT_SHA256,
+        DOCLING_DOWNLOAD_SCRIPT_URL: opts.scriptUrl ?? DOWNLOAD_SCRIPT_URL,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -109,7 +123,8 @@ export function installModels(opts: InstallModelsOptions): Promise<void> {
     child.on("close", (code) => {
       clearInterval(timer);
       if (buffer) onLine(buffer);
-      if (code === 0 && modelsInstalled(opts.modelsDir)) {
+      if (code === 0 && existsSync(join(opts.modelsDir, ".models", "layout_heron.onnx"))) {
+        writeFileSync(join(opts.modelsDir, "models.json"), JSON.stringify({ installedAt: new Date().toISOString(), script: opts.scriptUrl ?? DOWNLOAD_SCRIPT_URL, bytes: dirBytes(opts.modelsDir) }, null, 2) + "\n");
         report();
         resolve();
         return;

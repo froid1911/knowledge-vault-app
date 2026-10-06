@@ -30,7 +30,14 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * The download script of the docling.rs version in use. Override it with
+ * `DOCLING_DOWNLOAD_SCRIPT_URL` to pin a tag: the script on `master` follows
+ * the newest binding — the 1.100 line no longer fetches pdfium, which 1.5x
+ * bindings still need — so a pinned binding wants its own tag's script.
+ */
 const SCRIPT_URL =
+  process.env.DOCLING_DOWNLOAD_SCRIPT_URL ??
   "https://raw.githubusercontent.com/docling-project/docling.rs/master/scripts/install/download_dependencies.sh";
 
 // ASR is Whisper-tiny and is for audio/video only; the vault converts documents.

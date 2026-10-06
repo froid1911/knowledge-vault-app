@@ -24,7 +24,7 @@ console.log("  > .models/layout_heron.onnx");
 mkdirSync(join(home, ".models"), { recursive: true });
 writeFileSync(join(home, ".models", "layout_heron.onnx"), Buffer.alloc(4096, 1));
 console.log("  = .models/ocr_rec.onnx (already present)");
-console.log("pinned sha: " + process.env.DOCLING_DOWNLOAD_SCRIPT_SHA256);
+console.log("pinned sha: " + process.env.DOCLING_DOWNLOAD_SCRIPT_SHA256 + " url: " + process.env.DOCLING_DOWNLOAD_SCRIPT_URL);
 ${fail ? 'console.error("error: could not fetch .models/ocr_det.onnx from any mirror"); process.exit(1);' : 'console.log("ready  home=" + home + " missing=[]");'}
 `,
   );
@@ -39,8 +39,9 @@ describe("models", () => {
     await installModels({ modelsDir, script: fakeFetcher(dir), hooks: HOOKS, modulesDir: join(dir, "node_modules"), nodePath: process.execPath, env: { PATH: process.env.PATH ?? "" }, scriptSha256: "abc123", onProgress: (p) => seen.push(p), pollMs: 50 });
     expect(modelsInstalled(modelsDir)).toBe(true);
     expect(seen.some((p) => p.file === ".models/layout_heron.onnx")).toBe(true);
-    expect(seen.at(-1)!.bytes).toBe(4096);
+    expect(seen.at(-1)!.bytes).toBeGreaterThanOrEqual(4096); // the layout model, plus the marker written on success
     expect(seen.at(-1)!.lines.join("\n")).toContain("pinned sha: abc123");
+    expect(existsSync(join(modelsDir, "models.json"))).toBe(true); // the fetcher verified; the marker says so
     removeModels(modelsDir);
     expect(existsSync(modelsDir)).toBe(false);
   });
@@ -50,6 +51,16 @@ describe("models", () => {
     await expect(
       installModels({ modelsDir: join(dir, "models"), script: fakeFetcher(dir, true), hooks: HOOKS, modulesDir: join(dir, "node_modules"), nodePath: process.execPath, env: { PATH: process.env.PATH ?? "" } }),
     ).rejects.toThrow(/exited with code 1[\s\S]*could not fetch/);
+  });
+
+  it("does not count files alone as installed — the fetcher's verification must have passed", async () => {
+    const dir = tmp("kv-models-");
+    const modelsDir = join(dir, "models");
+    await expect(
+      installModels({ modelsDir, script: fakeFetcher(dir, true), hooks: HOOKS, modulesDir: join(dir, "node_modules"), nodePath: process.execPath, env: { PATH: process.env.PATH ?? "" } }),
+    ).rejects.toThrow(/exited with code 1/);
+    expect(existsSync(join(modelsDir, ".models", "layout_heron.onnx"))).toBe(true); // the files landed…
+    expect(modelsInstalled(modelsDir)).toBe(false); // …but they are not "installed"
   });
 
   it("parses upstream's per-file lines and measures a directory", () => {

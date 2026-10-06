@@ -1258,6 +1258,8 @@ async function convertWithoutBinding(
         format,
         inputName: filename,
         pages: null,
+        // Already text: nothing read it, nothing recognised it.
+        textSource: "text",
         ocr: null,
         timings: {
           convertMs: 0,
