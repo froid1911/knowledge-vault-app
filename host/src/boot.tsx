@@ -1,6 +1,7 @@
 import { initTheme, useTheme, type GraphQLReactorClient } from "@powerhousedao/reactor-browser";
 import { useEffect, useState, type ComponentType } from "react";
 import { declareDesktopHost } from "./bootstrap.js";
+import { installExternalLinksForTauri } from "./links.js";
 import { Landing } from "./screens/Landing.js";
 import { watchSidecar, type SidecarInfo, type SidecarStatus, type StatusWatcher } from "./sidecar.js";
 
@@ -53,6 +54,7 @@ function EngineScreen({ title, detail, kind }: { title: string; detail: string; 
 /** First thing on screen: the engine's state, then the vault app once the engine is ready. */
 export function Boot({ watch = watchSidecar, load = loadApp }: { watch?: StatusWatcher; load?: AppLoader }) {
   useThemeRoot();
+  useEffect(() => installExternalLinksForTauri(), []);
   const [status, setStatus] = useState<SidecarStatus>({ state: "starting" });
   const [app, setApp] = useState<LoadedApp | null>(null);
   const [failure, setFailure] = useState<string | null>(null);

@@ -1,4 +1,5 @@
 mod config;
+mod navigation;
 mod sidecar;
 
 use config::{AppPaths, DEFAULT_PORTS, Ports, new_control_token, pick_free_port};
@@ -9,10 +10,29 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(SidecarState::default()))
         .invoke_handler(tauri::generate_handler![sidecar_info])
         .setup(|app| {
             let handle = app.handle().clone();
+            // The window is built here rather than declared in tauri.conf.json so it can carry
+            // the navigation guard (spec §5.8): external pages go to the system browser.
+            let host_port = DEFAULT_PORTS.host;
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+                .title("Knowledge Vault")
+                .inner_size(1280.0, 820.0)
+                .min_inner_size(960.0, 640.0)
+                .disable_drag_drop_handler()
+                .on_navigation(move |url| {
+                    if navigation::is_internal(url, host_port) {
+                        return true;
+                    }
+                    if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+                        eprintln!("[shell] could not open {url} in the browser: {e}");
+                    }
+                    false
+                })
+                .build()?;
             // Dev loop (scripts/dev.mjs) already runs a sidecar: adopt it instead of spawning another.
             if let (Ok(p), Ok(c), Ok(t)) = (
                 std::env::var("KV_DEV_SIDECAR_PORT"),

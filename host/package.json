@@ -16,6 +16,7 @@
     "@powerhousedao/reactor-browser": "6.2.3-dev.44",
     "@powerhousedao/workflow": "6.2.3-dev.44",
     "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-opener": "^2",
     "document-model": "6.2.3-dev.44",
     "react": "19.2.6",
     "react-dom": "19.2.6"
