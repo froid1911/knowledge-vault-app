@@ -17,7 +17,7 @@
     "test": "vitest run",
     "stack:check": "node scripts/check-stack-versions.mjs",
     "e2e": "playwright test",
-    "sync:vault": "rm -rf node_modules/@powerhousedao/knowledge-note && bun install"
+    "sync:vault": "rm -rf node_modules/@powerhousedao/knowledge-note host/node_modules/.vite && bun install"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
