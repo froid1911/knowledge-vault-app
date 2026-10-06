@@ -17,6 +17,8 @@ const converterReady: ConverterStatus = {
   logPath: "/home/u/.local/share/kv/vault/logs/converter.log",
   health: { ok: true, backend: "pdfjs", binding: false, ready: false, formats: ["pdf", "md", "markdown", "txt"] },
   error: null,
+  installed: { binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false } },
+  job: null,
 };
 import { useIdentity, type IdentityApi } from "../state/use-identity.js";
 import { useState } from "react";
@@ -37,6 +39,11 @@ function api(over: Partial<SettingsApi> = {}): SettingsApi {
     fetchStatus: vi.fn(async () => ({ ok: true as const, port: 4301, controlPort: 4302, appVersion: "0.1.0", protected: false, dataDir: "/home/u/.local/share/kv/vault", stackVersion: "6.2.3-dev.44", vaultPackageVersion: "1.0.54-dev.22" })),
     fetchConverter: vi.fn(async () => converterReady),
     restartConverter: vi.fn(async () => converterReady),
+    installConverter: vi.fn(async (_i, component) => ({
+      ...converterReady,
+      job: { component, phase: "downloading" as const, percent: 42, bytes: 42, total: 100, message: "Downloading docling.rs-linux-x64-gnu — 42 %", error: null, startedAt: "2026-10-06T00:00:00.000Z", finishedAt: null },
+    })),
+    removeConverter: vi.fn(async () => converterReady),
     ...over,
   };
 }
@@ -126,5 +133,39 @@ describe("Settings", () => {
     expect(screen.getByText(/exited with code 1 twice/)).toBeTruthy();
     expect(screen.getByText(/converter\.log/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Restart" })).toBeTruthy();
+  });
+
+  it("offers the binding, gates the models on it, starts an install and shows its progress", async () => {
+    const a = api();
+    render(<Harness api={a} start="conversion" />);
+    expect(await screen.findByRole("button", { name: "Install binding" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install models" })).toBeNull();
+    expect(screen.getByText("Needs the converter binding first.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Install binding" }));
+    await waitFor(() => expect(a.installConverter).toHaveBeenCalledWith(info, "binding"));
+    expect(await screen.findByText("Downloading docling.rs-linux-x64-gnu — 42 %")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Converter binding install progress" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install binding" })).toBeNull();
+  });
+
+  it("shows an installed binding with its version and offers to remove it, and the models become installable", async () => {
+    const withBinding: ConverterStatus = { ...converterReady, installed: { binding: { installed: true, version: "1.58.0", supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false } }, health: { ...converterReady.health, binding: true, formats: ["pdf", "md", "docx", "pptx", "xlsx"] } };
+    const a = api({ fetchConverter: vi.fn(async () => withBinding) });
+    render(<Harness api={a} start="conversion" />);
+    expect(await screen.findByText("Installed · version 1.58.0")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove binding" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install models" })).toBeTruthy();
+    expect(screen.getByText(/^Reads PDF, Markdown, Word, slides and spreadsheets files\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove binding" }));
+    await waitFor(() => expect(a.removeConverter).toHaveBeenCalledWith(info, "binding"));
+  });
+
+  it("explains why the binding is not available on this platform and offers nothing to install", async () => {
+    const mac: ConverterStatus = { ...converterReady, installed: { binding: { installed: false, version: null, supported: false, platform: null, reason: "The converter for macOS is coming — text PDFs, Markdown and plain text work now." }, models: { installed: false } } };
+    const a = api({ fetchConverter: vi.fn(async () => mac) });
+    render(<Harness api={a} start="conversion" />);
+    expect(await screen.findByText(/converter for macOS is coming/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install binding" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install models" })).toBeNull();
   });
 });

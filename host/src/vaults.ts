@@ -60,6 +60,23 @@ export type ConverterStatus = {
   logPath: string;
   health: Record<string, unknown> | null;
   error: string | null;
+  installed: {
+    binding: { installed: boolean; version: string | null; supported: boolean; platform: string | null; reason: string | null };
+    models: { installed: boolean };
+  };
+  job: InstallJob | null;
+};
+export type ConverterComponent = "binding" | "models";
+export type InstallJob = {
+  component: ConverterComponent;
+  phase: "downloading" | "verifying" | "extracting" | "fetching" | "done" | "failed";
+  percent: number | null;
+  bytes: number;
+  total: number | null;
+  message: string;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
 };
 export async function fetchSettings(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<AppSettings> {
   return control<AppSettings>(info, "/settings", { method: "GET" }, fetchImpl);
@@ -72,4 +89,10 @@ export async function fetchConverter(info: SidecarInfo, fetchImpl: typeof fetch 
 }
 export async function restartConverter(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<ConverterStatus> {
   return control<ConverterStatus>(info, "/converter/restart", { method: "POST" }, fetchImpl);
+}
+export async function installConverterComponent(info: SidecarInfo, component: ConverterComponent, fetchImpl: typeof fetch = fetch): Promise<ConverterStatus> {
+  return control<ConverterStatus>(info, "/converter/install", { method: "POST", body: JSON.stringify({ component }) }, fetchImpl);
+}
+export async function removeConverterComponent(info: SidecarInfo, component: ConverterComponent, fetchImpl: typeof fetch = fetch): Promise<ConverterStatus> {
+  return control<ConverterStatus>(info, "/converter/remove", { method: "POST", body: JSON.stringify({ component }) }, fetchImpl);
 }

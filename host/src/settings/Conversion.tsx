@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { SettingsApi } from "../screens/Settings.js";
 import type { SidecarInfo } from "../sidecar.js";
-import type { AppSettings, ConversionMode, ConverterStatus } from "../vaults.js";
+import type { AppSettings, ConversionMode, ConverterComponent, ConverterStatus, InstallJob } from "../vaults.js";
 
 const STATE_LABEL: Record<ConverterStatus["state"], string> = {
   off: "Stopped",
@@ -84,12 +84,36 @@ export function ConversionSection({ info, api }: { info: SidecarInfo; api: Setti
     };
   }, [api, info, refresh]);
 
-  // While the helper starts, ask again shortly.
+  // While the helper starts or an install runs, ask again shortly.
+  const jobActive = status?.job !== null && status?.job !== undefined && status.job.phase !== "done" && status.job.phase !== "failed";
   useEffect(() => {
-    if (status?.state !== "starting") return;
+    if (status?.state !== "starting" && !jobActive) return;
     const timer = setTimeout(() => void refresh(), 1500);
     return () => clearTimeout(timer);
-  }, [status, refresh]);
+  }, [status, jobActive, refresh]);
+
+  async function install(component: ConverterComponent) {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api.installConverter(info, component));
+    } catch (err) {
+      setError(`Could not start the install: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(component: ConverterComponent) {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api.removeConverter(info, component));
+    } catch (err) {
+      setError(`Could not remove it: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -150,6 +174,39 @@ export function ConversionSection({ info, api }: { info: SidecarInfo; api: Setti
           )}
         </div>
       )}
+      {status && settings?.conversion.mode === "local" && (
+        <>
+          <h3 className="kv-settings-subheading">Components</h3>
+          <ul className="kv-components">
+            <ComponentRow
+              name="Converter binding"
+              what="Word, slides, spreadsheets, web pages and more · about 70 MB"
+              installed={status.installed.binding.installed}
+              installedNote={status.installed.binding.version ? `Installed · version ${status.installed.binding.version}` : "Installed"}
+              unavailable={status.installed.binding.supported ? null : (status.installed.binding.reason ?? "Not available on this computer.")}
+              job={status.job?.component === "binding" ? status.job : null}
+              busy={busy || jobActive}
+              onInstall={() => void install("binding")}
+              onRemove={() => void remove("binding")}
+              installLabel="Install binding"
+              removeLabel="Remove binding"
+            />
+            <ComponentRow
+              name="PDF models"
+              what="Scanned PDFs, images, tables and OCR · about 700 MB"
+              installed={status.installed.models.installed}
+              installedNote="Installed"
+              unavailable={status.installed.binding.installed ? null : "Needs the converter binding first."}
+              job={status.job?.component === "models" ? status.job : null}
+              busy={busy || jobActive}
+              onInstall={() => void install("models")}
+              onRemove={() => void remove("models")}
+              installLabel="Install models"
+              removeLabel="Remove models"
+            />
+          </ul>
+        </>
+      )}
       {settings && (
         <form className="kv-form" onSubmit={(e) => void submit(e)}>
           <fieldset className="kv-radios">
@@ -184,5 +241,54 @@ export function ConversionSection({ info, api }: { info: SidecarInfo; api: Setti
         </form>
       )}
     </div>
+  );
+}
+
+type RowProps = {
+  name: string;
+  what: string;
+  installed: boolean;
+  installedNote: string;
+  /** Why it cannot be installed here (platform, or a prerequisite); null when it can. */
+  unavailable: string | null;
+  job: InstallJob | null;
+  busy: boolean;
+  onInstall: () => void;
+  onRemove: () => void;
+  installLabel: string;
+  removeLabel: string;
+};
+
+/** One installable component: its state, the one action that fits it, and the install's progress while it runs. */
+function ComponentRow({ name, what, installed, installedNote, unavailable, job, busy, onInstall, onRemove, installLabel, removeLabel }: RowProps) {
+  const running = job !== null && job.phase !== "done" && job.phase !== "failed";
+  return (
+    <li className="kv-component" data-installed={installed} data-running={running}>
+      <div className="kv-component-main">
+        <strong>{name}</strong>
+        <span className="kv-quiet">{what}</span>
+        {running && (
+          <div className="kv-component-progress" role="status">
+            <progress value={job.percent ?? undefined} max={100} aria-label={`${name} install progress`} />
+            <span>{job.message}</span>
+          </div>
+        )}
+        {job?.phase === "failed" && <p role="alert" className="kv-error">{job.error}</p>}
+        {!running && installed && <span className="kv-quiet">{installedNote}</span>}
+        {!running && !installed && unavailable && <span className="kv-quiet">{unavailable}</span>}
+      </div>
+      <div className="kv-component-actions">
+        {!running && installed && (
+          <button type="button" className="kv-button kv-button-danger-quiet" onClick={onRemove} disabled={busy}>
+            {removeLabel}
+          </button>
+        )}
+        {!running && !installed && unavailable === null && (
+          <button type="button" className="kv-button kv-button-primary" onClick={onInstall} disabled={busy}>
+            {installLabel}
+          </button>
+        )}
+      </div>
+    </li>
   );
 }

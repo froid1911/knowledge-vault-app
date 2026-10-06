@@ -1,5 +1,5 @@
 import type { SidecarInfo } from "../sidecar.js";
-import { deleteVault, fetchConverter, fetchSettings, fetchStatus, fetchVaults, renameVault, restartConverter, saveSettings, type AppSettings, type ConverterStatus, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary } from "../vaults.js";
+import { deleteVault, fetchConverter, fetchSettings, fetchStatus, fetchVaults, installConverterComponent, removeConverterComponent, renameVault, restartConverter, saveSettings, type AppSettings, type ConverterComponent, type ConverterStatus, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary } from "../vaults.js";
 import { AppBar } from "../shell/AppBar.js";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../shell/router.js";
 import { AboutSection } from "../settings/About.js";
@@ -21,8 +21,21 @@ export type SettingsApi = {
   fetchStatus: (info: SidecarInfo) => Promise<EngineStatus>;
   fetchConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
   restartConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
+  installConverter: (info: SidecarInfo, component: ConverterComponent) => Promise<ConverterStatus>;
+  removeConverter: (info: SidecarInfo, component: ConverterComponent) => Promise<ConverterStatus>;
 };
-export const realSettingsApi: SettingsApi = { fetchVaults, renameVault, deleteVault, fetchSettings, saveSettings, fetchStatus, fetchConverter, restartConverter };
+export const realSettingsApi: SettingsApi = {
+  fetchVaults,
+  renameVault,
+  deleteVault,
+  fetchSettings,
+  saveSettings,
+  fetchStatus,
+  fetchConverter,
+  restartConverter,
+  installConverter: installConverterComponent,
+  removeConverter: removeConverterComponent,
+};
 
 const LABELS: Record<SettingsSection, string> = {
   vaults: "Vaults",
