@@ -57,7 +57,7 @@ test("conversion: ready out of the box, anonymous through the engine, switched l
   await expect
     .poll(async () => ((await (await request.get(`${ENGINE}/convert/health`)).json()) as { configured: boolean }).configured, { timeout: 15_000 })
     .toBe(false);
-  await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
+  await expect(page.locator(".kv-converter-head strong")).toHaveText("Off");
 
   // Back on this computer: a fresh helper, ready again, and the engine follows.
   await page.getByLabel(/^On this computer/).click();

@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from "node:child_process";
-import { appendFileSync, createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +40,7 @@ export type ConverterStatus = {
   /** Stage B: what is installed in app-data, and what this machine could install. */
   installed: {
     binding: { installed: boolean; version: string | null; supported: boolean; platform: PlatformTriple | null; reason: string | null };
-    models: { installed: boolean };
+    models: { installed: boolean; supported: boolean; reason: string | null };
   };
   /** The install in progress, or the last one until the next starts. */
   job: InstallJob | null;
@@ -78,6 +78,7 @@ export type ConverterChild = {
   pid?: number | undefined;
   kill(signal?: NodeJS.Signals): boolean;
   once(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
+  on?(event: "error", listener: (error: Error) => void): unknown;
   stdout?: NodeJS.ReadableStream | null;
   stderr?: NodeJS.ReadableStream | null;
 };
@@ -104,6 +105,9 @@ export type ConverterDeps = {
   platform?: { triple: PlatformTriple | null; reason: string | null };
   installer?: Installer;
   registry?: string;
+  /** For the models' tool check (sh, curl, tar) and the Windows gate; detected when absent. */
+  platformName?: NodeJS.Platform;
+  toolsMissing?: (names: string[]) => string[];
 };
 
 /** The helper inherits the OS/session allowlist only — none of the engine's matrix, none of our KV_* config. */
@@ -141,6 +145,15 @@ export function createConverterManager(deps: ConverterDeps) {
     modelsInstalled: () => modelsInstalled(modelsDir),
   };
   let job: InstallJob | null = null;
+  let starting: Promise<void> | null = null;
+  const platformName = deps.platformName ?? process.platform;
+  const toolsMissing = deps.toolsMissing ?? ((names: string[]) => missingOnPath(names));
+  /** The models fetch runs upstream's shell script: a Unix shell and its tools, which Windows gets with its binding (Plan 6). */
+  const modelsSupport = (): { supported: boolean; reason: string | null } => {
+    if (platformName === "win32") return { supported: false, reason: "The PDF models need a Unix shell to install; Windows support arrives with its converter binding." };
+    const missing = toolsMissing(["sh", "curl", "tar"]);
+    return missing.length ? { supported: false, reason: `Installing the PDF models needs ${missing.join(", ")} on this computer.` } : { supported: true, reason: null };
+  };
 
   let mode: ConversionSettings["mode"] = "off";
   let remoteUrl = "";
@@ -155,13 +168,27 @@ export function createConverterManager(deps: ConverterDeps) {
   let logStream: WriteStream | null = null;
   let generation = 0;
 
-  async function start(): Promise<void> {
-    if (child) return;
+  /** One start at a time: a second caller joins the one in flight; stop() can cancel it before the spawn. */
+  function start(): Promise<void> {
+    if (child) return Promise.resolve();
+    if (starting) return starting;
+    starting = startNow().finally(() => {
+      starting = null;
+    });
+    return starting;
+  }
+
+  async function startNow(): Promise<void> {
     const gen = ++generation;
     state = "starting";
     error = null;
     exitCode = null;
     const port = await pickPort();
+    // A stop() or a mode change while the port was being picked wins: nothing is spawned.
+    if (gen !== generation || mode !== "local") {
+      if (state === "starting") state = "off";
+      return;
+    }
     const url = `http://127.0.0.1:${port}`;
     mkdirSync(join(deps.dataDir, "logs"), { recursive: true });
     const proc = spawnImpl(deps.nodePath, ["--import", hooksPath, deps.entry], {
@@ -181,8 +208,17 @@ export function createConverterManager(deps: ConverterDeps) {
     proc.stdout?.pipe(logStream, { end: false });
     proc.stderr?.pipe(logStream, { end: false });
     proc.once("exit", (code) => {
-      if (gen !== generation) return; // an older child's exit, after a restart
+      if (gen !== generation) return; // an older child's exit, after a restart or a stop
       onExit(code);
+    });
+    proc.on?.("error", (spawnError) => {
+      if (gen !== generation) return;
+      child = null;
+      localUrl = null;
+      state = "down";
+      error = `the converter could not start: ${spawnError.message}`;
+      log(error);
+      deps.setEngineUrl(null);
     });
     const deadline = now() + readyTimeoutMs;
     while (child === proc) {
@@ -224,6 +260,7 @@ export function createConverterManager(deps: ConverterDeps) {
     if (restarts < 1) {
       restarts += 1;
       log(`exited with code ${code ?? "null"}; restarting once`);
+      deps.setEngineUrl(null); // not a dead port while it comes back; start() points the engine again when ready
       void start();
       return;
     }
@@ -234,6 +271,8 @@ export function createConverterManager(deps: ConverterDeps) {
   }
 
   async function stop(): Promise<void> {
+    generation++; // a start still picking its port must not spawn, and the current child's exit is ours to handle here
+    if (starting) await starting.catch(() => undefined);
     const proc = child;
     if (!proc) {
       if (state !== "down") state = "off";
@@ -285,6 +324,7 @@ export function createConverterManager(deps: ConverterDeps) {
     if (jobActive()) throw new ConverterBusyError(`Already installing the ${job!.component}.`);
     if (component === "binding" && !platform.triple) throw new ConverterInputError(platform.reason ?? "No converter binding for this platform.");
     if (component === "models" && !installer.bindingInstalled()) throw new ConverterInputError("Install the converter's binding first — it is what reads and verifies the models.");
+    if (component === "models" && !modelsSupport().supported) throw new ConverterInputError(modelsSupport().reason ?? "The models cannot be installed on this computer.");
     const started: InstallJob = {
       component,
       phase: component === "binding" ? "downloading" : "fetching",
@@ -386,7 +426,7 @@ export function createConverterManager(deps: ConverterDeps) {
       error,
       installed: {
         binding: { installed: manifest !== null, version: manifest?.version ?? null, supported: platform.triple !== null, platform: platform.triple, reason: platform.reason },
-        models: { installed: installer.modelsInstalled() },
+        models: { installed: installer.modelsInstalled(), ...modelsSupport() },
       },
       job,
     };
@@ -398,7 +438,14 @@ export function createConverterManager(deps: ConverterDeps) {
 export type ConverterManager = ReturnType<typeof createConverterManager>;
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms).unref());
+}
+
+/** Which of these tools are not on PATH (an executable file in a PATH dir; Windows also tries .exe/.cmd/.bat). */
+export function missingOnPath(names: string[], pathVar: string = process.env.PATH ?? "", platform: NodeJS.Platform = process.platform): string[] {
+  const dirs = pathVar.split(platform === "win32" ? ";" : ":").filter(Boolean);
+  const exts = platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+  return names.filter((name) => !dirs.some((dir) => exts.some((ext) => existsSync(join(dir, name + ext)))));
 }
 
 /** A free loopback port: bind 0, read it back, release it. */

@@ -62,7 +62,7 @@ export type ConverterStatus = {
   error: string | null;
   installed: {
     binding: { installed: boolean; version: string | null; supported: boolean; platform: string | null; reason: string | null };
-    models: { installed: boolean };
+    models: { installed: boolean; supported: boolean; reason: string | null };
   };
   job: InstallJob | null;
 };

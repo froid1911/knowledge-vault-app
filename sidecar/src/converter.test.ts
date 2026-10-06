@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { ConverterBusyError, ConverterInputError, converterEnvironment, createConverterManager, type ConverterDeps, type Installer } from "./converter.js";
+import { ConverterBusyError, ConverterInputError, converterEnvironment, createConverterManager, missingOnPath, type ConverterDeps, type Installer } from "./converter.js";
 import type { BindingManifest } from "./converter/install.js";
 
 class FakeChild extends EventEmitter {
@@ -49,6 +49,8 @@ function harness(over: Partial<ConverterDeps> = {}) {
       throw new Error("ECONNREFUSED");
     },
     pickPort: async () => 5999,
+    platformName: "linux",
+    toolsMissing: () => [],
     readyIntervalMs: 2,
     readyTimeoutMs: 500,
     restartWindowMs: 30_000,
@@ -191,7 +193,7 @@ describe("converter manager — installing", () => {
     const { installer, state } = fakeInstaller({ hold: true });
     const h = harness({ installer, platform: linux });
     await h.manager.apply({ mode: "local", remoteUrl: "" });
-    expect((await h.manager.status()).installed).toEqual({ binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false } });
+    expect((await h.manager.status()).installed).toEqual({ binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false, supported: true, reason: null } });
     const started = await h.manager.install("binding");
     expect(started.job).toMatchObject({ component: "binding", phase: "downloading", percent: 42, message: "Downloading docling.rs-linux-x64-gnu — 42 %" });
     await expect(h.manager.install("models")).rejects.toBeInstanceOf(ConverterBusyError);
@@ -257,6 +259,86 @@ describe("converter manager — installing", () => {
     expect(status.job).toMatchObject({ phase: "failed", error: expect.stringMatching(/ECONNRESET/) });
     expect(h.spawns).toHaveLength(1); // no restart after a failure
     await expect(h.manager.install("binding")).resolves.toBeTruthy(); // not busy any more
+  });
+});
+
+describe("converter manager — starting and stopping do not race", () => {
+  function deferredPort() {
+    let resolve!: (port: number) => void;
+    const promise = new Promise<number>((r) => (resolve = r));
+    return { pickPort: () => promise, resolve };
+  }
+  it("two concurrent starts spawn one helper", async () => {
+    const port = deferredPort();
+    const h = harness({ pickPort: port.pickPort });
+    const a = h.manager.apply({ mode: "local", remoteUrl: "" });
+    const b = h.manager.apply({ mode: "local", remoteUrl: "" });
+    port.resolve(5999);
+    await Promise.all([a, b]);
+    expect(h.spawns).toHaveLength(1);
+    expect((await h.manager.status()).state).toBe("ready");
+  });
+  it("switching off while the helper is still being started spawns nothing and points the engine nowhere", async () => {
+    const port = deferredPort();
+    const h = harness({ pickPort: port.pickPort });
+    const on = h.manager.apply({ mode: "local", remoteUrl: "" });
+    const off = h.manager.apply({ mode: "off", remoteUrl: "" });
+    port.resolve(5999);
+    await Promise.all([on, off]);
+    expect(h.spawns).toHaveLength(0);
+    expect(h.urls.at(-1)).toBeNull();
+    expect((await h.manager.status()).state).toBe("off");
+  });
+  it("a helper that cannot be spawned is reported as down, not thrown", async () => {
+    const h = harness({
+      spawn: () => {
+        const c = new FakeChild();
+        setImmediate(() => c.emit("error", new Error("ENOENT: node not found")));
+        return c;
+      },
+      fetchImpl: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      readyTimeoutMs: 200,
+    });
+    let advance = (_ms: number): void => {};
+    advance = (ms) => void h.advance(ms);
+    const fetchAdvancing = async () => {
+      advance(100);
+      throw new Error("ECONNREFUSED");
+    };
+    void fetchAdvancing;
+    await h.manager.apply({ mode: "local", remoteUrl: "" });
+    const status = await h.manager.status();
+    expect(status.state).toBe("down");
+    expect(status.error).toMatch(/could not start|did not answer/);
+    expect(h.urls.at(-1)).toBeNull();
+  });
+  it("the engine is not left pointing at a dead port while the helper restarts", async () => {
+    const h = harness();
+    await h.manager.apply({ mode: "local", remoteUrl: "" });
+    h.children[0]!.die(1);
+    await tick();
+    // null while it came back, then the new URL once ready
+    expect(h.urls.slice(-2)).toEqual([null, "http://127.0.0.1:5999"]);
+  });
+});
+
+describe("converter manager — where the models can be installed", () => {
+  it("Windows is told why not, and a missing tool is named", async () => {
+    const { installer } = fakeInstaller();
+    const win = harness({ installer, platform: linux, platformName: "win32" });
+    expect((await win.manager.status()).installed.models).toMatchObject({ supported: false, reason: expect.stringMatching(/Windows/) });
+    await win.manager.apply({ mode: "local", remoteUrl: "" });
+    await win.manager.install("binding");
+    await tick();
+    await expect(win.manager.install("models")).rejects.toThrow(/Windows/);
+    const noCurl = harness({ installer: fakeInstaller().installer, platform: linux, toolsMissing: () => ["curl"] });
+    expect((await noCurl.manager.status()).installed.models.reason).toMatch(/needs curl/);
+  });
+  it("missingOnPath names what is absent", () => {
+    expect(missingOnPath(["sh", "definitely-not-a-tool-xyz"])).toEqual(["definitely-not-a-tool-xyz"]);
+    expect(missingOnPath(["tool"], "/a;/b", "win32")).toEqual(["tool"]);
   });
 });
 

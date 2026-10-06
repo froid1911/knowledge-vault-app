@@ -17,6 +17,13 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
  */
 export const BINDING_VERSION = "1.58.0";
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org";
+/** The registry's integrity strings for the pinned version, recorded 2026-10-07: a registry answer that differs is refused before any download. */
+export const PINNED_INTEGRITY: Record<string, string> = {
+  "docling.rs@1.58.0": "sha512-6PkJ2g1O44FjPFIzrRANZSVR5gv95OYDg/rjy5Ellmkc1YIuSPJN3AXzEbJg4W0lNURsCkqMizW+G6ogj6qHLw==",
+  "docling.rs-linux-x64-gnu@1.58.0": "sha512-4be77AUbYgCn7QiwBGEGnUR2lYRnaJDOLTfr2AN/ttUeBqJPEP8Z0bieexWVjeSpdhXbJRstiWZJY15wqdpQfw==",
+  "docling.rs-linux-arm64-gnu@1.58.0": "sha512-G0KvOVbrsm0h2XCgjMUgVQ4JAEmvbswTdN5uM6QdnMjqWxvFZJobLOxpMNf1E4lLEfdvazM1Mk4xflzcCUKuUQ==",
+  "docling.rs-win32-x64-msvc@1.58.0": "sha512-rmQxc+hYfaI8HblD53DOATOlPqvllLv7B2fD8pG4C4zrKOTRO98UhUvN5iFy80WU53UR7NERqZyTYLshi5AdBw==",
+};
 
 export type InstallPhase = "metadata" | "downloading" | "verifying" | "extracting" | "done";
 export type InstallProgress = { phase: InstallPhase; file?: string; bytes?: number; total?: number | null };
@@ -35,6 +42,11 @@ export type InstallBindingOptions = {
   tar?: (args: string[]) => Promise<void>;
   onProgress?: (progress: InstallProgress) => void;
   maxAttempts?: number;
+  /** Abort a download that sends nothing for this long; the attempt is retried (resumed). */
+  idleMs?: number;
+  metadataTimeoutMs?: number;
+  /** Integrity strings the registry must agree with; `{}` disables the check (tests). */
+  pins?: Record<string, string>;
 };
 
 export async function installBinding(opts: InstallBindingOptions): Promise<BindingManifest> {
@@ -50,9 +62,9 @@ export async function installBinding(opts: InstallBindingOptions): Promise<Bindi
   let bytes = 0;
   for (const name of ["docling.rs", `docling.rs-${opts.triple}`]) {
     progress({ phase: "metadata", file: name });
-    const meta = await registryMetadata(fetchImpl, registry, name, version);
+    const meta = await registryMetadata(fetchImpl, registry, name, version, opts.metadataTimeoutMs ?? 30_000, opts.pins ?? PINNED_INTEGRITY);
     const tgz = join(downloads, `${name}-${version}.tgz`);
-    await download(fetchImpl, meta.tarball, tgz, (b, total) => progress({ phase: "downloading", file: name, bytes: b, total }), opts.maxAttempts ?? 5);
+    await download(fetchImpl, meta.tarball, tgz, (b, total) => progress({ phase: "downloading", file: name, bytes: b, total }), opts.maxAttempts ?? 5, opts.idleMs ?? 30_000);
     progress({ phase: "verifying", file: name });
     await verifyIntegrity(tgz, meta.integrity);
     progress({ phase: "extracting", file: name });
@@ -87,11 +99,20 @@ export function removeBinding(dir: string): void {
   rmSync(join(dir, "binding.json"), { force: true });
 }
 
-async function registryMetadata(fetchImpl: typeof fetch, registry: string, name: string, version: string): Promise<{ tarball: string; integrity: string }> {
-  const res = await fetchImpl(`${registry}/${name}/${version}`);
+async function registryMetadata(
+  fetchImpl: typeof fetch,
+  registry: string,
+  name: string,
+  version: string,
+  timeoutMs: number,
+  pins: Record<string, string>,
+): Promise<{ tarball: string; integrity: string }> {
+  const res = await fetchImpl(`${registry}/${name}/${version}`, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`The registry answered HTTP ${res.status} for ${name}@${version}.`);
   const body = (await res.json()) as { dist?: { tarball?: string; integrity?: string } };
   if (!body.dist?.tarball || !body.dist.integrity) throw new Error(`The registry's metadata for ${name}@${version} has no tarball or integrity.`);
+  const pin = pins[`${name}@${version}`];
+  if (pin && pin !== body.dist.integrity) throw new IntegrityError(`The registry's integrity for ${name}@${version} differs from the one this app pins — refusing to download it.`);
   return { tarball: body.dist.tarball, integrity: body.dist.integrity };
 }
 
@@ -100,14 +121,29 @@ async function registryMetadata(fetchImpl: typeof fetch, registry: string, name:
  * connection or a short read, and rename to `dest` when the byte count says
  * the file is complete. Integrity is checked afterwards, not here.
  */
-async function download(fetchImpl: typeof fetch, url: string, dest: string, onProgress: (bytes: number, total: number | null) => void, maxAttempts: number): Promise<void> {
+async function download(
+  fetchImpl: typeof fetch,
+  url: string,
+  dest: string,
+  onProgress: (bytes: number, total: number | null) => void,
+  maxAttempts: number,
+  idleMs: number,
+): Promise<void> {
   if (existsSync(dest)) return; // a complete download from an earlier attempt; verified next
   const part = `${dest}.part`;
   let have = existsSync(part) ? statSync(part).size : 0;
   let lastError: unknown = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // A socket that goes quiet is abandoned and the attempt resumed, so an install can fail but never hang.
+    const controller = new AbortController();
+    let idle = setTimeout(() => controller.abort(new Error(`no data for ${idleMs} ms`)), idleMs);
+    const touch = (): void => {
+      clearTimeout(idle);
+      idle = setTimeout(() => controller.abort(new Error(`no data for ${idleMs} ms`)), idleMs);
+    };
     try {
-      const res = await fetchImpl(url, have > 0 ? { headers: { range: `bytes=${have}-` } } : {});
+      const res = await fetchImpl(url, { ...(have > 0 ? { headers: { range: `bytes=${have}-` } } : {}), signal: controller.signal });
+      touch();
       if (res.status === 416) break; // nothing left to fetch
       if (res.status === 200 && have > 0) {
         // The server ignored the range: start over.
@@ -122,6 +158,7 @@ async function download(fetchImpl: typeof fetch, url: string, dest: string, onPr
       const counter = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
           have += chunk.length;
+          touch();
           onProgress(have, total);
           callback(null, chunk);
         },
@@ -133,8 +170,10 @@ async function download(fetchImpl: typeof fetch, url: string, dest: string, onPr
       }
       lastError = new Error(`short read: ${have} of ${total} bytes`);
     } catch (error) {
-      lastError = error;
+      lastError = controller.signal.aborted ? (controller.signal.reason as Error) : error;
       have = existsSync(part) ? statSync(part).size : 0;
+    } finally {
+      clearTimeout(idle);
     }
   }
   if (existsSync(part) && !existsSync(dest)) {

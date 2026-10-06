@@ -17,7 +17,7 @@ const converterReady: ConverterStatus = {
   logPath: "/home/u/.local/share/kv/vault/logs/converter.log",
   health: { ok: true, backend: "pdfjs", binding: false, ready: false, formats: ["pdf", "md", "markdown", "txt"] },
   error: null,
-  installed: { binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false } },
+  installed: { binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false, supported: true, reason: null } },
   job: null,
 };
 import { useIdentity, type IdentityApi } from "../state/use-identity.js";
@@ -149,7 +149,7 @@ describe("Settings", () => {
   });
 
   it("shows an installed binding with its version and offers to remove it, and the models become installable", async () => {
-    const withBinding: ConverterStatus = { ...converterReady, installed: { binding: { installed: true, version: "1.58.0", supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false } }, health: { ...converterReady.health, binding: true, formats: ["pdf", "md", "docx", "pptx", "xlsx"] } };
+    const withBinding: ConverterStatus = { ...converterReady, installed: { binding: { installed: true, version: "1.58.0", supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false, supported: true, reason: null } }, health: { ...converterReady.health, binding: true, formats: ["pdf", "md", "docx", "pptx", "xlsx"] } };
     const a = api({ fetchConverter: vi.fn(async () => withBinding) });
     render(<Harness api={a} start="conversion" />);
     expect(await screen.findByText("Installed · version 1.58.0")).toBeTruthy();
@@ -161,11 +161,28 @@ describe("Settings", () => {
   });
 
   it("explains why the binding is not available on this platform and offers nothing to install", async () => {
-    const mac: ConverterStatus = { ...converterReady, installed: { binding: { installed: false, version: null, supported: false, platform: null, reason: "The converter for macOS is coming — text PDFs, Markdown and plain text work now." }, models: { installed: false } } };
+    const mac: ConverterStatus = { ...converterReady, installed: { binding: { installed: false, version: null, supported: false, platform: null, reason: "The converter for macOS is coming — text PDFs, Markdown and plain text work now." }, models: { installed: false, supported: true, reason: null } } };
     const a = api({ fetchConverter: vi.fn(async () => mac) });
     render(<Harness api={a} start="conversion" />);
     expect(await screen.findByText(/converter for macOS is coming/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install binding" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install models" })).toBeNull();
+  });
+
+  it("headlines another server by its answer, and names why the models cannot be installed here", async () => {
+    const remote: ConverterStatus = { ...converterReady, mode: "remote", state: "off", url: "http://10.0.0.5:5011", localUrl: null, pid: null, health: { ok: true, backend: "docling.rs", binding: true, ready: true, formats: ["pdf", "docx"] } };
+    const a = api({
+      fetchConverter: vi.fn(async () => remote),
+      fetchSettings: vi.fn(async () => ({ version: 1 as const, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "remote" as const, remoteUrl: "http://10.0.0.5:5011" } })),
+    });
+    render(<Harness api={a} start="conversion" />);
+    expect(await screen.findByText("Another server · Ready")).toBeTruthy();
+    expect(screen.queryByText("Stopped")).toBeNull();
+    cleanup();
+    const windows: ConverterStatus = { ...converterReady, installed: { binding: { installed: true, version: "1.58.0", supported: true, platform: "win32-x64-msvc", reason: null }, models: { installed: false, supported: false, reason: "The PDF models need a Unix shell to install; Windows support arrives with its converter binding." } } };
+    const b = api({ fetchConverter: vi.fn(async () => windows) });
+    render(<Harness api={b} start="conversion" />);
+    expect(await screen.findByText(/need a Unix shell/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install models" })).toBeNull();
   });
 });

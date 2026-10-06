@@ -74,7 +74,7 @@
 
 ### Task B2 — sidecar: resolve hook, models installer, manager and control
 - [ ] `sidecar/src/converter-hooks.mjs` (`registerHooks` resolve: bare `docling.rs`/`sharp` → `$CONVERTER_MODULES_DIR/<name>/index.js` when present); test spawns node `--import` it with a fake `docling.rs` in a temp dir and imports.
-- [ ] `installModels()` runs the vendored `fetch-models.mjs` as a child (`DOCLING_RS_HOME`, the script sha pin, the hook), parses its lines into progress (current file, bytes on disk), requires the binding first; `modelsInstalled()` = `.models/layout_heron.onnx` present.
+- [ ] `installModels()` runs the vendored `fetch-models.mjs` as a child (`DOCLING_RS_HOME`, the script pinned by URL and sha to the binding's own tag, the hook), parses its lines into progress (current file, bytes on disk), requires the binding first; `modelsInstalled()` = the fetcher's verification passed (a `models.json` marker) and the layout model is present — upstream's script verifies no checksums, so files alone never count.
 - [ ] Manager: one install job at a time (`job: { component, phase, percent, bytes, total, message, error }`), `installed: { binding: { installed, version, supported, platform }, models: { installed } }` in status, restart the helper after a binding install (its probe is once-per-process), `remove(component)`; the helper is spawned with `--import converter-hooks.mjs` and `CONVERTER_MODULES_DIR`.
 - [ ] Control: `POST /converter/install { component }` → 202, `POST /converter/remove { component }`; `GET /converter` carries `installed` and `job`. Tests. Commit `feat(sidecar): install and remove the converter's binding and models`.
 

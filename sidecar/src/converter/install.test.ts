@@ -29,7 +29,7 @@ const sri = (bytes: Buffer) => `sha512-${createHash("sha512").update(bytes).dige
  * optional one-time connection drop at a fraction of the first full request,
  * and an optional wrong integrity.
  */
-async function fakeRegistry(opts: { dropOnceAt?: number; wrongIntegrity?: boolean } = {}) {
+async function fakeRegistry(opts: { dropOnceAt?: number; wrongIntegrity?: boolean; stall?: boolean } = {}) {
   const js = tarball({ "package.json": JSON.stringify({ name: "docling.rs", version: "1.58.0", main: "index.js" }), "index.js": 'module.exports = { marker: "fake-docling" };\n' });
   const native = tarball({ "package.json": JSON.stringify({ name: "docling.rs-linux-x64-gnu", version: "1.58.0" }), "docling-rs.linux-x64-gnu.node": randomBytes(2 * 1024 * 1024) /* incompressible, like the real .node */ });
   const files: Record<string, Buffer> = { "docling.rs": js, "docling.rs-linux-x64-gnu": native };
@@ -53,10 +53,18 @@ async function fakeRegistry(opts: { dropOnceAt?: number; wrongIntegrity?: boolea
       if (range) {
         const from = Number(range[1]);
         res.writeHead(206, { "content-range": `bytes ${from}-${bytes.length - 1}/${bytes.length}`, "content-length": bytes.length - from });
+        if (opts.stall) {
+          res.write(bytes.subarray(from, from + 10)); // the resumed request goes quiet too
+          return;
+        }
         res.end(bytes.subarray(from));
         return;
       }
       res.writeHead(200, { "content-length": bytes.length });
+      if (opts.stall) {
+        res.write(bytes.subarray(0, 10)); // then silence
+        return;
+      }
       if (opts.dropOnceAt !== undefined && !dropped && bytes.length > 100_000) {
         dropped = true;
         res.write(bytes.subarray(0, Math.floor(bytes.length * opts.dropOnceAt)));
@@ -69,7 +77,15 @@ async function fakeRegistry(opts: { dropOnceAt?: number; wrongIntegrity?: boolea
     res.writeHead(404).end();
   });
   const port = await new Promise<number>((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port)));
-  return { registry: `http://127.0.0.1:${port}`, requests, close: () => new Promise<void>((r) => server.close(() => r())) };
+  return {
+    registry: `http://127.0.0.1:${port}`,
+    requests,
+    close: () =>
+      new Promise<void>((r) => {
+        server.closeAllConnections();
+        server.close(() => r());
+      }),
+  };
 }
 
 let closers: (() => Promise<void>)[] = [];
@@ -84,7 +100,7 @@ describe("installBinding", () => {
     closers.push(reg.close);
     const dir = mkdtemp("kv-conv-");
     const phases: InstallProgress[] = [];
-    const manifest = await installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, onProgress: (p) => phases.push(p) });
+    const manifest = await installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, pins: {}, onProgress: (p) => phases.push(p) });
     expect(manifest).toMatchObject({ version: "1.58.0", platform: "linux-x64-gnu" });
     expect(manifest.bytes).toBeGreaterThan(100_000);
     expect(require(join(dir, "node_modules", "docling.rs"))).toEqual({ marker: "fake-docling" });
@@ -103,7 +119,7 @@ describe("installBinding", () => {
     const reg = await fakeRegistry({ dropOnceAt: 0.6 });
     closers.push(reg.close);
     const dir = mkdtemp("kv-conv-");
-    await installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry });
+    await installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, pins: {} });
     const native = reg.requests.filter((r) => r.url === "/tgz/docling.rs-linux-x64-gnu");
     expect(native.length).toBe(2);
     expect(native[0]!.range).toBeUndefined();
@@ -116,11 +132,32 @@ describe("installBinding", () => {
     const reg = await fakeRegistry({ wrongIntegrity: true });
     closers.push(reg.close);
     const dir = mkdtemp("kv-conv-");
-    await expect(installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry })).rejects.toBeInstanceOf(IntegrityError);
+    await expect(installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, pins: {} })).rejects.toBeInstanceOf(IntegrityError);
     expect(existsSync(join(dir, "node_modules"))).toBe(false);
     expect(existsSync(join(dir, "downloads", "docling.rs-1.58.0.tgz"))).toBe(false);
     expect(existsSync(join(dir, "downloads", "docling.rs-1.58.0.tgz.part"))).toBe(false);
     expect(installedBinding(dir)).toBeNull();
+  });
+});
+
+describe("installBinding — never hangs, never trusts a changed registry", () => {
+  it("gives up on a download that goes quiet, after retrying it", async () => {
+    const reg = await fakeRegistry({ stall: true });
+    closers.push(reg.close);
+    const dir = mkdtemp("kv-conv-");
+    const started = Date.now();
+    await expect(installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, pins: {}, idleMs: 150, maxAttempts: 2 })).rejects.toThrow(/did not complete[\s\S]*no data for 150 ms/);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(reg.requests.filter((r) => r.url === "/tgz/docling.rs")).toHaveLength(2);
+    expect(existsSync(join(dir, "node_modules"))).toBe(false);
+  });
+
+  it("refuses a registry answer whose integrity differs from the pinned one, before downloading anything", async () => {
+    const reg = await fakeRegistry();
+    closers.push(reg.close);
+    const dir = mkdtemp("kv-conv-");
+    await expect(installBinding({ dir, triple: "linux-x64-gnu", registry: reg.registry, pins: { "docling.rs@1.58.0": "sha512-somethingelse" } })).rejects.toBeInstanceOf(IntegrityError);
+    expect(reg.requests.some((r) => r.url.startsWith("/tgz/"))).toBe(false);
   });
 });
 

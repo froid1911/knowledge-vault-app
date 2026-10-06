@@ -10,6 +10,20 @@ const STATE_LABEL: Record<ConverterStatus["state"], string> = {
   down: "Not responding",
 };
 
+/** The card's headline: the helper's state on this computer, the server's answer elsewhere, or Off. */
+export function headline(status: ConverterStatus): string {
+  if (status.mode === "off") return "Off";
+  if (status.mode === "remote") return status.health?.ok === true ? "Another server · Ready" : "Another server · Not responding";
+  return STATE_LABEL[status.state];
+}
+
+/** The dot beside the headline follows the same reading. */
+export function dotState(status: ConverterStatus): "off" | "starting" | "ready" | "down" {
+  if (status.mode === "off") return "off";
+  if (status.mode === "remote") return status.health?.ok === true ? "ready" : "down";
+  return status.state;
+}
+
 /** Format ids as the converter reports them, in words a person uses. */
 const WORDS: Record<string, string> = {
   pdf: "PDF",
@@ -152,10 +166,10 @@ export function ConversionSection({ info, api }: { info: SidecarInfo; api: Setti
       </p>
       {status === null && !error && <p className="kv-quiet" role="status">Loading…</p>}
       {status && (
-        <div className="kv-converter" data-state={status.state}>
+        <div className="kv-converter" data-state={dotState(status)}>
           <div className="kv-converter-head">
             <span className="kv-dot" aria-hidden="true" />
-            <strong>{STATE_LABEL[status.state]}</strong>
+            <strong>{headline(status)}</strong>
             {status.mode === "remote" && status.url && <span className="kv-quiet">{status.url}</span>}
           </div>
           <p className="kv-converter-reads">{describeHealth(status)}</p>
@@ -180,7 +194,7 @@ export function ConversionSection({ info, api }: { info: SidecarInfo; api: Setti
           <ul className="kv-components">
             <ComponentRow
               name="Converter binding"
-              what="Word, slides, spreadsheets, web pages and more · about 70 MB"
+              what="Word, slides, spreadsheets, web pages and more · 23 MB download, 68 MB installed"
               installed={status.installed.binding.installed}
               installedNote={status.installed.binding.version ? `Installed · version ${status.installed.binding.version}` : "Installed"}
               unavailable={status.installed.binding.supported ? null : (status.installed.binding.reason ?? "Not available on this computer.")}
@@ -193,10 +207,10 @@ export function ConversionSection({ info, api }: { info: SidecarInfo; api: Setti
             />
             <ComponentRow
               name="PDF models"
-              what="Scanned PDFs, images, tables and OCR · about 700 MB"
+              what="Scanned PDFs, images, tables and OCR · about 720 MB"
               installed={status.installed.models.installed}
               installedNote="Installed"
-              unavailable={status.installed.binding.installed ? null : "Needs the converter binding first."}
+              unavailable={!status.installed.models.supported ? (status.installed.models.reason ?? "Not available on this computer.") : status.installed.binding.installed ? null : "Needs the converter binding first."}
               job={status.job?.component === "models" ? status.job : null}
               busy={busy || jobActive}
               onInstall={() => void install("models")}
