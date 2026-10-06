@@ -44,7 +44,7 @@ export function readSidecarConfig(env: Env): SidecarConfig {
   };
 }
 
-/** Spec §4.2: the environment the Switchboard is started with. Nothing else is inherited. */
+/** Spec §4.2: the Switchboard matrix. environment.ts decides what else the engine inherits — an OS/session allowlist, nothing more. */
 export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string): Record<string, string> {
   const origin = `http://127.0.0.1:${cfg.port}`;
   const flag = cfg.protected ? "true" : "false";

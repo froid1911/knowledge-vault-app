@@ -9,10 +9,15 @@ const cfg = readSidecarConfig({
   KV_CONTROL_TOKEN: "t",
 });
 
+const PACKAGE_DIRS = [
+  "/app/sidecar/node_modules/@powerhousedao/knowledge-note",
+  "/app/sidecar/node_modules/@powerhousedao/workflow",
+];
+
 describe("switchboardOptions", () => {
-  it("loads the vault and workflow packages only, with the config file named explicitly", () => {
-    const o = switchboardOptions(cfg, "/app/sidecar/powerhouse.config.json");
-    expect(o.packages).toEqual(["@powerhousedao/knowledge-note", "@powerhousedao/workflow"]);
+  it("loads the vault and workflow packages by directory (never by name from cwd), with the config file named explicitly", () => {
+    const o = switchboardOptions(cfg, "/app/sidecar/powerhouse.config.json", PACKAGE_DIRS);
+    expect(o.packages).toEqual(PACKAGE_DIRS);
     expect(o.disableLocalPackages).toBe(true);
     expect(o.dev).toBe(false);
     expect(o.configFile).toBe("/app/sidecar/powerhouse.config.json");
@@ -22,7 +27,7 @@ describe("switchboardOptions", () => {
     expect(o.workflows).toEqual({ enabled: true });
   });
   it("keeps the engine's identity keypair under the data dir's secrets, never beside the code", () => {
-    const o = switchboardOptions(cfg, "/app/sidecar/powerhouse.config.json");
+    const o = switchboardOptions(cfg, "/app/sidecar/powerhouse.config.json", PACKAGE_DIRS);
     expect(o.identity).toEqual({ keypairPath: "/tmp/Knowledge Vault äö/data/secrets/app.keypair.json" });
   });
 });

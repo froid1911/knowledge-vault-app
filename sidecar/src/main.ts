@@ -1,10 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { register } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSidecarConfig, switchboardEnv } from "./config.js";
-import { switchboardOptions } from "./options.js";
 import { createControlServer } from "./control.js";
+import { prepareDataDir } from "./data-dir.js";
+import { applyEnvironment, engineEnvironment } from "./environment.js";
+import { switchboardOptions } from "./options.js";
 import { readyLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
 import { createVaultDrive, listVaultDrives } from "./vaults.js";
@@ -13,30 +15,31 @@ import { createVaultDrive, listVaultDrives } from "./vaults.js";
 // through it @powerhousedao/pglite-fs) is imported — hence the dynamic import below.
 register(new URL("./nodefs-hooks.mjs", import.meta.url));
 
+/**
+ * The two packages the engine loads, as directories (spec §4.1). The loader
+ * resolves a bare name from cwd/node_modules, and the engine runs with cwd =
+ * the data dir; a directory needs no cwd and no link into app-data.
+ */
+const PACKAGE_DIRS = ["@powerhousedao/knowledge-note", "@powerhousedao/workflow"].map((name) =>
+  fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url)),
+);
+
 async function main(): Promise<void> {
   const cfg = readSidecarConfig(process.env);
-  cfg.dataDir = resolve(cfg.dataDir); // relative values (the dev loop's ../.dev-data) resolve against cwd = sidecar/
-  for (const sub of ["reactor", "read-model", "attachments", "secrets", "logs"]) {
-    mkdirSync(join(cfg.dataDir, sub), { recursive: true });
-  }
+  cfg.dataDir = resolve(cfg.dataDir); // relative values (the dev loop's) resolve against cwd = sidecar/
+  // Everything the engine creates — PGlite files, logs, the SDK's .ph — is private to the user.
+  process.umask(0o077);
+  prepareDataDir(cfg.dataDir);
   const workflowsKey = ensureSecret(join(cfg.dataDir, "secrets", "workflows.key"));
-  Object.assign(process.env, switchboardEnv(cfg, workflowsKey));
-  // The config file is named explicitly, and the engine runs with cwd = the data
-  // dir so anything it writes relative to cwd (the Renown SDK's `./.ph/…`) lands
-  // in app-data, never beside the code. Package names still resolve: the
-  // Switchboard imports them relative to its own module, not to cwd.
+  // Spec §4.2: the engine's environment is the matrix plus an OS/session allowlist. Nothing else is inherited.
+  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, workflowsKey)));
   const configFile = fileURLToPath(new URL("../powerhouse.config.json", import.meta.url));
-  // The Switchboard's package loader resolves names from cwd, and bun keeps the
-  // sidecar's dependencies in sidecar/node_modules — so the data dir gets a
-  // link to them before it becomes cwd.
-  const modulesLink = join(cfg.dataDir, "node_modules");
-  if (!existsSync(modulesLink)) {
-    symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), modulesLink, "junction");
-  }
+  // cwd = the data dir, so anything written relative to cwd (the Renown SDK's
+  // `./.ph`, the registry cache) lands in app-data, never beside the code.
   process.chdir(cfg.dataDir);
 
   const { startSwitchboard } = await import("@powerhousedao/switchboard/server");
-  const options = switchboardOptions(cfg, configFile);
+  const options = switchboardOptions(cfg, configFile, PACKAGE_DIRS);
   const switchboard = await startSwitchboard(options);
   // The SDK writes the keypair world-readable; it is a secret.
   if (existsSync(options.identity.keypairPath)) chmodSync(options.identity.keypairPath, 0o600);
