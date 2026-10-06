@@ -24,6 +24,11 @@ test("conversion: ready out of the box, anonymous through the engine, switched l
   await expect(page.getByText("Ready", { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(/^Reads PDF, Markdown and plain text files\./)).toBeVisible();
 
+  // Stage B: the components, each with the one action that fits — this Linux runner can install the binding; the models wait for it.
+  await expect(page.getByRole("button", { name: "Install binding" })).toBeVisible();
+  await expect(page.getByText("Needs the converter binding first.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Install models" })).toHaveCount(0);
+
   // The engine's own route, anonymous: open mode lets the owner through; the service is the runtime one.
   const health = (await (await request.get(`${ENGINE}/convert/health`)).json()) as Record<string, unknown>;
   expect(health).toMatchObject({ configured: true, ok: true, source: "runtime", binding: false });
