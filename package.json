@@ -2,7 +2,10 @@
   "name": "desktop-knowledge-vault",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["host", "sidecar"],
+  "workspaces": [
+    "host",
+    "sidecar"
+  ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:host": "bun run --cwd host dev",
@@ -13,7 +16,8 @@
     "tsc": "bun run --cwd sidecar tsc && bun run --cwd host tsc",
     "test": "vitest run",
     "stack:check": "node scripts/check-stack-versions.mjs",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "sync:vault": "rm -rf node_modules/@powerhousedao/knowledge-note && bun install"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
