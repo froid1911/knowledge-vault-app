@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSample, fetchVaultGraph, forwardLinksQuery, graphEndpoint } from "./graph.js";
+import { buildSample, chooseSeed, fetchVaultGraph, forwardLinksQuery, graphEndpoint } from "./graph.js";
 
 const node = (id: string, status: string | null = "CANONICAL", documentType = "bai/knowledge-note") => ({ documentId: id, status, documentType });
 
@@ -37,8 +37,27 @@ describe("graph sampling", () => {
     expect(sample.nodes[1]).toEqual({ id: "m1", kind: "moc", status: "MOC" });
     expect(sample.edges).toEqual([["seed", "m1"]]);
   });
+  it("seeds from the map of content with the most outgoing links, else the most recent node", () => {
+    const moc = (id: string, outDegree: number) => ({ ...node(id, "MOC", "bai/moc"), outDegree });
+    expect(chooseSeed([moc("small", 2), moc("hub", 9), moc("empty", 0)], [node("r1")])?.documentId).toBe("hub");
+    expect(chooseSeed([moc("empty", 0)], [node("r1"), node("r2")])?.documentId).toBe("r1");
+    expect(chooseSeed([], [])).toBeNull();
+  });
+  it("falls back to the recent nodes when the walk from the seed comes back thin (a leaf seed gave a single dot)", async () => {
+    const recent = [node("leaf", "IN_REVIEW"), node("n2"), node("n3", "DRAFT")];
+    const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
+      const q = JSON.parse(init.body).query as string;
+      if (q.includes("knowledgeGraphStats")) return new Response(JSON.stringify({ data: { stats: { noteCount: 24, edgeCount: 43, mocCount: 0 }, mocs: [], recent } }));
+      if (q.includes("knowledgeGraphConnections")) return new Response(JSON.stringify({ data: { connections: [] } }));
+      return new Response(JSON.stringify({ data: { l0: [{ sourceDocumentId: "n2", targetDocumentId: "leaf", linkType: "BUILDS_ON" }], l1: [], l2: [] } }));
+    });
+    const sample = await fetchVaultGraph("http://127.0.0.1:4201", "d1", { maxNodes: 28 }, fetchImpl as unknown as typeof fetch);
+    expect(sample.nodes.map((n) => n.id)).toEqual(["leaf", "n2", "n3"]);
+    expect(sample.edges).toEqual([["n2", "leaf"]]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
   it("returns counts with an empty sample for a vault without notes, after one request", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: { stats: { noteCount: 0, edgeCount: 0, mocCount: 0 }, recent: [] } })));
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: { stats: { noteCount: 0, edgeCount: 0, mocCount: 0 }, mocs: [], recent: [] } })));
     const sample = await fetchVaultGraph("http://127.0.0.1:4201", "d1", { maxNodes: 40 }, fetchImpl as unknown as typeof fetch);
     expect(sample).toEqual({ noteCount: 0, linkCount: 0, mocCount: 0, nodes: [], edges: [] });
     expect(fetchImpl).toHaveBeenCalledTimes(1);

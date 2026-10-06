@@ -16,10 +16,23 @@ export type VaultGraphSample = {
 type Stats = { noteCount: number; edgeCount: number; mocCount: number };
 type RawNode = { documentId: string; status: string | null; documentType: string | null };
 type RawConnection = { node: RawNode; depth: number };
+type RawMoc = RawNode & { outDegree: number };
 type RawLink = { sourceDocumentId: string; targetDocumentId: string; linkType: string | null };
 
 const DERIVED = new Set(["INVOLVES", "PROMOTED_TO"]);
 const LINKS_PER_SAMPLE = 12;
+
+/**
+ * Where to start the sample: the map of content with the most outgoing links
+ * (the vault's structure, and the walk follows outgoing edges), else the most
+ * recently edited node. A leaf note as a seed would yield a single dot.
+ */
+export function chooseSeed(mocs: readonly RawMoc[], recent: readonly RawNode[]): RawNode | null {
+  const hub = [...mocs].filter((m) => m.outDegree > 0).sort((a, b) => b.outDegree - a.outDegree)[0];
+  return hub ?? recent[0] ?? null;
+}
+
+const MIN_CONNECTED = 3;
 
 export function graphEndpoint(origin: string): string {
   return `${origin}/graphql/knowledgeGraph`;
@@ -84,16 +97,17 @@ export async function fetchVaultGraph(
   fetchImpl: typeof fetch = fetch,
 ): Promise<VaultGraphSample> {
   const url = graphEndpoint(origin);
-  const first = await gql<{ stats: Stats; recent: RawNode[] }>(
+  const first = await gql<{ stats: Stats; mocs: RawMoc[]; recent: RawNode[] }>(
     url,
-    `query Vault($driveId: ID!) {
+    `query Vault($driveId: ID!, $limit: Int!) {
       stats: knowledgeGraphStats(driveId: $driveId) { noteCount edgeCount mocCount }
-      recent: knowledgeGraphRecent(driveId: $driveId, limit: 1) { documentId status documentType }
+      mocs: knowledgeGraphNodesByStatus(driveId: $driveId, status: "MOC") { documentId status documentType outDegree }
+      recent: knowledgeGraphRecent(driveId: $driveId, limit: $limit) { documentId status documentType }
     }`,
-    { driveId },
+    { driveId, limit: opts.maxNodes },
     fetchImpl,
   );
-  const seed = first.recent[0] ?? null;
+  const seed = chooseSeed(first.mocs, first.recent);
   if (!seed || first.stats.noteCount === 0) return buildSample({ stats: first.stats, seed: null, connections: [], links: [], maxNodes: opts.maxNodes });
   const second = await gql<{ connections: RawConnection[] }>(
     url,
@@ -103,12 +117,18 @@ export async function fetchVaultGraph(
     { driveId, seed: seed.documentId },
     fetchImpl,
   );
-  const provisional = buildSample({ stats: first.stats, seed, connections: second.connections, links: [], maxNodes: opts.maxNodes });
+  // A thin walk (a seed with few outgoing links) falls back to the most recently edited nodes.
+  let connections = second.connections;
+  let provisional = buildSample({ stats: first.stats, seed, connections, links: [], maxNodes: opts.maxNodes });
+  if (provisional.nodes.length < MIN_CONNECTED) {
+    connections = first.recent.map((node) => ({ node, depth: 1 }));
+    provisional = buildSample({ stats: first.stats, seed, connections, links: [], maxNodes: opts.maxNodes });
+  }
   const ids = provisional.nodes.slice(0, LINKS_PER_SAMPLE).map((n) => n.id);
   let links: RawLink[] = [];
   if (ids.length > 0) {
     const third = await gql<Record<string, RawLink[]>>(url, forwardLinksQuery(ids), { driveId }, fetchImpl);
     links = Object.values(third).flat();
   }
-  return buildSample({ stats: first.stats, seed, connections: second.connections, links, maxNodes: opts.maxNodes });
+  return buildSample({ stats: first.stats, seed, connections, links, maxNodes: opts.maxNodes });
 }
