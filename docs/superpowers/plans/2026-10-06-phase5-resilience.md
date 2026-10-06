@@ -47,3 +47,16 @@ Automated: kill the sidecar process during a session → banner "Reconnecting…
 
 ## Done when
 The engine restarts itself after a crash and explains when it can't; upgrades back up first and never downgrade a store; users can back up, restore, export and delete; the tray keeps the engine available to tools; the update notice works; all gates green.
+
+## Review follow-ups (from the Phase 0 review)
+
+- `stop_sidecar` still blocks the main thread for up to 15 s (`std::thread::sleep` in the `CloseRequested` handler);
+  move the stop off-thread with a "Stopping the engine…" state. Model `SidecarState` transitions
+  (`starting → ready → exited`, plus `stopping`) as a pure function and unit-test it; `sidecar_info` already reports
+  `exited` with the code.
+- Port fallback inside the sidecar: the engine runs `strictPort: true` and `control.listen(cfg.controlPort)` has no
+  upward fallback, so only the shell-spawn path survives a busy 4201/4202; the readiness line already carries the
+  real ports, so the sidecar can fall back itself and the dev loop/e2e stop hard-failing.
+- The piece registry logs `@powerhousedao/piece-reactor is shipped twice` (the sidecar's copy of
+  `@powerhousedao/workflow` and bun's root cache, same version — it keeps one). Harmless today; a version drift
+  between the two would not be. The stack-version check should cover duplicated stack packages in the install tree.

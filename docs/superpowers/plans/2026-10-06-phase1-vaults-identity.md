@@ -690,3 +690,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Done when
 - The landing matches §5.7 (tiles with constellations, first-run inline create, status strip); sign-in works end to end through the system browser; the protection switch restarts the engine into protected mode and back; Settings has Identity, Vaults (rename, protect), Diagnostics (Connect your tools), About; all gates green.
+
+## Review follow-ups (from the Phase 0 review)
+
+- `editors/knowledge-vault/components/GettingStarted.tsx` shows `http://localhost:4001/mcp` as copy — wrong under the
+  desktop host; Diagnostics' **Connect your tools** block owns the real URL, and the package copy should follow the
+  declared host origin (`getHostConfig()`).
+- `sidecar/src/vaults.ts`: `listVaultDrives` requests full `state` for every drive plus an N+1 `/d/<id>`; Task 4's
+  graph-index counts replace it. `createVaultDrive` leaves a nameless drive if `setDriveName` fails after
+  `createDocument` — delete the drive on that failure (or name it in the same request if the API allows).
+- The Phase 0 skeleton's error strings are raw (`Unauthorized`, `Failed to fetch`); the designed landing says what
+  happened and what fixes it (spec §5.7 copy rules).

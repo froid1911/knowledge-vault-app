@@ -2510,10 +2510,35 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Done when
 
-- `bun run dev` opens a window; a vault can be created and opened; the Knowledge Vault app renders with its editors; no request leaves for ports 4001/3001; closing the window stops the sidecar cleanly.
+- `bun run dev` opens a window; a vault can be created and opened; the Knowledge Vault app renders with its editors; no request leaves the three loopback ports; closing the window stops the sidecar cleanly when the shell spawned it (under `bun run dev` the dev loop owns the sidecar and Ctrl+C stops it).
 - `bun run e2e` passes on a fresh store; `cargo test`, `bun run test`, `bun run tsc`, `bun run stack:check` pass.
 - In `bai-knowledge-note`, branch `feat/desktop-host-mode` holds Tasks 1–5 with its full gate green, ready for review and a package release in a later phase.
 
 ## Not in this plan (next plans)
 
 Phase 1: the designed landing (spec §5.7), vault metadata (note counts from the graph index rather than the drive tree), sign-in through the sidecar's Renown session flow, the protection switch and open-mode changes in the `http` subgraph and `AuthGate`; Phase 2: pipeline template and Workflow Studio; Phase 3: remote vaults; Phase 4: conversion tiers; Phase 5: resilience (supervisor restarts, backups, upgrade guard, tray); Phase 6: packaging (bundled Node, resources, installers), CI and performance gates.
+
+## Review outcome (2026-10-06)
+
+The whole-branch review (1 Critical, 9 Important, 10 Minor) was fixed in follow-up commits on both branches; the
+ledger copy in `docs/superpowers/ledgers/2026-10-06-phase0-foundation.md` records each ruling. Corrections to this
+plan, for whoever writes the next ones:
+
+- **Task 4 said the test file was "(new)"** — `editors/knowledge-vault/lib/remote-first.test.ts` already held 13
+  regression tests for `batchKeyContains` and the operation-history cache; the task overwrote them. Always say
+  "append" and check `git log` on a path before calling it new. Restored; the host-client tests live in
+  `remote-first.host-client.test.ts` (they mock `reactor-browser`, the old suite imports the real one).
+- **The plan's `index.html` fetched Inter from Google Fonts** — against spec §2. Removed; fonts are self-hosted in
+  Plan 1. The e2e now asserts that every request targets one of the three loopback ports.
+- **`app_data_dir()` is shared with the webview profile** — the engine's files now live under `vault/` (spec §3.3).
+- **`stop_sidecar` waited on readiness, not on the child's life** — a sidecar still booting was killed at once. The
+  shell now tracks `running` from spawn to termination and keys the wait on it; `ExitRequested` (Cmd+Q) stops too.
+- **Review Focus #3 overstated what Task 3's test pinned** — the "declared after the package booted" branch had no
+  test; `boot.test.ts` now has `LATE DESKTOP HOST`.
+- **Task 10 Step 6 expected a "Starting the engine…" state that `await resolveSidecar()` before mount could never
+  show** — the host now mounts `Boot` first and renders starting / ready / exited from the shell's status events.
+- **`Object.assign(process.env, matrix)` is not "nothing else is inherited"** — the sidecar now applies an
+  allowlist (`environment.ts`) before starting the Switchboard.
+- **The `node_modules` link into app-data could dangle into `EEXIST` on every launch** — packages are passed to
+  the loader by directory instead; `prepareDataDir` removes a leftover link.
+- **The e2e wiped the developer's `.dev-data`** — it runs on `.e2e-data` (`dev.mjs --data-dir`).

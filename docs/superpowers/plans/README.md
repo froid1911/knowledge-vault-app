@@ -13,3 +13,7 @@
 Outline plans fix interfaces, contracts, review-focus inputs and the tests that pin them; they are expanded into
 write-test / run / implement / run / commit steps when the preceding phase has landed, because their details
 depend on what that phase reveals. Execute in order; each plan assumes the previous ones are merged.
+
+**Ledgers.** Each plan is executed with an SDD ledger (`.superpowers/sdd/<plan>/progress.md`: task evidence and every
+ruling with its cost-if-wrong). The working copy is ignored by git; when a plan lands, the ledger is copied to
+`docs/superpowers/ledgers/<plan>.md` and committed with the branch, so reviews and later plans can rely on it.

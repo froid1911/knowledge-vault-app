@@ -51,3 +51,10 @@ README: install instructions per platform (macOS right-click → Open), where da
 
 ## Done when
 `bun run build:app` yields an installer that passes the clean-container smoke; `main` publishes Linux and macOS artefacts with sizes and versions in the notes; CI runs checks, e2e and the perf gate on every push; the app icon is the vault icon everywhere (window, dock/taskbar, installer).
+
+## Review follow-ups (from the Phase 0 review)
+
+- `tauri.conf.json` has `"csp": null` — fine in dev, must be set before the first release build (loopback origins
+  for the engine ports, `'self'` for the host, no remote script).
+- The sidecar's `secrets/` and `umask 077` assume a POSIX file system; verify the Windows build keeps secrets private
+  (ACLs) when Windows is added.

@@ -56,19 +56,22 @@ desktop-knowledge-vault/
 
 ### 3.3 App-data directory
 
-Linux `~/.local/share/desktop-knowledge-vault/`, macOS `~/Library/Application Support/desktop-knowledge-vault/`:
+The OS app-data directory — Linux `~/.local/share/xyz.powerhouse.desktop-knowledge-vault/`, macOS `~/Library/Application Support/xyz.powerhouse.desktop-knowledge-vault/` (the Tauri identifier) — is **shared with the webview's own profile**: WebKitGTK and WKWebView write `CacheStorage/`, `databases/`, `hsts-storage.sqlite`, `mediakeys/`, … there. Everything the engine owns therefore lives one level down, in `vault/`, so backups, the store guard and "Delete all local data" operate on a directory that is ours alone:
 
 ```
-reactor/          PGlite data dir (reactor store)
-read-model/       PGlite data dir (read models, graph index, embeddings, workflow runtime)
-attachments/
-backups/<date>-<stackVersion>/
-converter/        native docling.rs binding + ONNX weights (tier 1), when installed
-secrets/          app.keypair.json, user.keypair.json, user.credential.json, workflows.key, llm.key   (mode 0600)
-logs/             sidecar.log (rotated), shell.log
-config.json
+vault/
+  reactor/          PGlite data dir (reactor store)
+  read-model/       PGlite data dir (read models, graph index, embeddings, workflow runtime)
+  attachments/
+  backups/<date>-<stackVersion>/
+  converter/        native docling.rs binding + ONNX weights (tier 1), when installed
+  secrets/          mode 0700 — app.keypair.json, user.keypair.json, user.credential.json, workflows.key, llm.key (each 0600)
+  logs/             sidecar.log (rotated), shell.log
+  .ph/              what the Renown SDK and the registry cache write relative to cwd (the engine runs with cwd = vault/)
+  config.json
 ```
 
+The sidecar creates this layout itself (`prepareDataDir`) with `umask 077`, so every file the engine writes is private to the user.
 ### 3.4 Dependency direction and versions
 
 This repo depends on the **published** `@powerhousedao/knowledge-note` and imports only its exports: `./editors` (drive app + 10 editors, browser build) in the host; `./subgraphs`, `./processors`, `./pieces`, `./document-models`, `./manifest` in the sidecar; `./pieces/knowledge-vault/templates` (new, §7.5). Likewise `@powerhousedao/workflow` (`./editors` for Workflow Studio, server side for the models and runtime), `@powerhousedao/switchboard`, `@powerhousedao/reactor-browser`, `@powerhousedao/design-system`. During development `"@powerhousedao/knowledge-note": "file:../bai-knowledge-note"` links the local checkout (as `condo-fusion` links `condo`); CI and releases pin the published version. Every `@powerhousedao/*` package is pinned to one stack version; a mismatch is a build error.
@@ -78,7 +81,7 @@ This repo depends on the **published** `@powerhousedao/knowledge-note` and impor
 ### 4.1 Entry and options
 
 `sidecar/src/main.ts` (TypeScript compiled with `tsc`; `node_modules` ships alongside, no bundler) calls `startSwitchboard` from `@powerhousedao/switchboard/server` with:
-`packages: ["@powerhousedao/knowledge-note", "@powerhousedao/workflow"]`, `disableLocalPackages: true`, `dev: false`, `mcp: true`, `workflows: { enabled: true }`, `strictPort: true`, `fatalErrorShutdown: true`, `identity` per §4.4. It never loads a `.env`; the shell passes every variable explicitly.
+`packages` = the **directories** of `@powerhousedao/knowledge-note` and `@powerhousedao/workflow` inside the sidecar's own `node_modules` — never bare names: the loader resolves a name from `cwd/node_modules`, the engine runs with cwd = the data dir, and a link into app-data to bridge that can dangle when the code moves — `disableLocalPackages: true`, `dev: false`, `mcp: true`, `workflows: { enabled: true }`, `strictPort: true`, `fatalErrorShutdown: true`, `identity` per §4.4. It never loads a `.env`; the shell passes every variable explicitly.
 
 ### 4.2 Environment matrix
 
@@ -100,6 +103,8 @@ This repo depends on the **published** `@powerhousedao/knowledge-note` and impor
 | `KV_CONTROL_PORT`, `KV_CONTROL_TOKEN` | set | set | control API bind port and per-launch secret (§4.6) |
 
 Not carried over from the vault's `.env`: `TYPESAFE_API_KEY` (unused by the code) and `CONVERT_SERVICE_URL` (replaced by the runtime setter, §7.4).
+
+**Inheritance is an allowlist** (`sidecar/src/environment.ts`). The engine's environment is the matrix above plus what any process needs from the OS and the user's session — `PATH`, `HOME`, locale, `TMPDIR`, the display and D-Bus variables the system-browser sign-in needs, TLS and proxy settings, the Windows basics, and our own `KV_*` — and nothing else. A developer's exported `SENTRY_DSN`, a `PH_*` or `DATABASE_URL` from another project, an `OPENAI_API_KEY` or a `NODE_OPTIONS` preload never reach the engine, whoever spawned the sidecar: the sidecar applies the allowlist to its own process before starting the Switchboard, so neither the shell nor the dev loop needs scrubbing of its own.
 
 ### 4.3 Storage
 
