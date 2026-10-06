@@ -2080,7 +2080,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [ ] **Step 1: Scaffold with the Tauri CLI, then replace the generated config**
 
 Run from the repo root: `bunx @tauri-apps/cli init --app-name "Knowledge Vault" --window-title "Knowledge Vault" --frontend-dist ../host/dist --dev-url http://127.0.0.1:4200 --before-dev-command "" --before-build-command "" --ci`
-Then `bunx @tauri-apps/cli icon spike/../host/public/icon.png` is **skipped** in Phase 0 (default icons stay); set these files:
+Then generate the app icon set from the vault's icon. The source is `assets/vault-icon.png` (698 × 736, RGBA — copied from `bai-knowledge-note/vault-icon.png`); Tauri's `icon` command needs a square, so pad it first:
+```bash
+magick assets/vault-icon.png -background none -gravity center -extent 1024x1024 assets/vault-icon-1024.png
+bunx @tauri-apps/cli icon assets/vault-icon-1024.png      # writes src-tauri/icons/{32x32,128x128,128x128@2x}.png, icon.icns, icon.ico, …
+cp assets/vault-icon-1024.png host/public/vault-icon.png   # favicon + landing mark (add <link rel="icon" href="/vault-icon.png"> to host/index.html)
+```
+Commit `assets/`, `src-tauri/icons/` and `host/public/vault-icon.png`; the dev window, dock/taskbar entry and the landing header all show the vault icon. Then set these files:
 
 `src-tauri/tauri.conf.json`:
 ```json
@@ -2094,7 +2100,7 @@ Then `bunx @tauri-apps/cli icon spike/../host/public/icon.png` is **skipped** in
     "windows": [{ "title": "Knowledge Vault", "width": 1280, "height": 820, "minWidth": 960, "minHeight": 640, "dragDropEnabled": false }],
     "security": { "csp": null }
   },
-  "bundle": { "active": false }
+  "bundle": { "active": false, "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"] }
 }
 ```
 (`dragDropEnabled: false` is spec §5.8: HTML5 drops must reach the vault app's intake. Bundling is Phase 6.)
@@ -2415,7 +2421,7 @@ Also run once **without** the dev loop to prove the shell's own spawn path: `bun
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src-tauri Cargo.lock 2>/dev/null; git add src-tauri
+git add src-tauri assets host/public/vault-icon.png host/index.html
 git commit -m "feat(shell): Tauri window that spawns, supervises and stops the sidecar (dev mode)
 
 Picks free loopback ports, generates a per-launch control token, spawns

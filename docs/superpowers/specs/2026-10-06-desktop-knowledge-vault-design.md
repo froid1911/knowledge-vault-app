@@ -42,6 +42,7 @@ desktop-knowledge-vault/
 ├── src-tauri/        Rust shell: window, app-data dir, sidecar supervisor + env, system-browser launch, tray, Docker control
 ├── sidecar/          Node: startSwitchboard(...) with @powerhousedao/knowledge-note + @powerhousedao/workflow; control API; tier-0 converter
 ├── host/             Vite + React web app: landing, vault list, settings, mounts the vault app, its editors and Workflow Studio
+├── assets/           vault-icon.png — the one icon source (Tauri icon set, favicon, landing mark are generated from it)
 ├── spike/            the 2026-10-06 feasibility probe, read-only reference
 ├── docs/             this spec, plans, ADR-style notes
 └── package.json      bun workspace; every @powerhousedao/* pinned to ONE stack version (6.2.3-dev.44 today)
@@ -283,6 +284,7 @@ Tier 0 is a tiny service inside the sidecar implementing the documented conversi
 ## 11. Build, packaging, CI and branching
 
 - **Local commands:** `bun run dev` (sidecar from source + Vite + `cargo tauri dev`), `bun run build:app` (full installer for the current platform — the same steps CI runs), `bun run test`, `bun run e2e`, `bun run perf`.
+- **App icon:** `assets/vault-icon.png` (the Knowledge Vault icon from the vault repo), padded to a 1024 × 1024 transparent square and run through `tauri icon` for every platform size; the same file is the host's favicon and the landing's header mark.
 - **Build pipeline:** host (Vite → `host/dist`), sidecar (`tsc` + production-only `node_modules` install), `tauri build`. Node is a per-target external binary downloaded from nodejs.org at build time with checksum verification; `sidecar/`, `host/dist` and the pipeline template are bundled resources; macOS carries a sidecar entitlements file so the Node binary may run inside the bundle.
 - **Targets:** Linux x64 `.AppImage` + `.deb`; macOS arm64 and x64 `.dmg`, unsigned. Windows prepared by the layout, not built.
 - **Branching:** all work on `dev` (feature branches merge into `dev`); merging `dev` into `main` is the release act.
