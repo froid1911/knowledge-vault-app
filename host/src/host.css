@@ -87,11 +87,14 @@ body, #root { margin: 0; min-height: 100vh; }
 
 /* ---- inside a vault ---- */
 .kv-vault-screen { display: flex; flex-direction: column; height: 100vh; }
-.kv-appbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--bai-border); background: var(--bai-surface); }
-.kv-appbar button { padding: 6px 10px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); font: inherit; cursor: pointer; }
+/* A landmark, not a toolbar: one slim strip above the workspace. */
+.kv-appbar { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 3px 8px; border-bottom: 1px solid var(--bai-border); background: var(--bai-surface); box-sizing: border-box; }
+.kv-appbar button { padding: 3px 8px; border: 1px solid var(--bai-border); border-radius: 5px; background: var(--bai-surface); color: var(--bai-text); font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; }
 .kv-appbar button:hover { background: var(--bai-hover); }
 .kv-appbar button:focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 2px; }
-.kv-appbar-title { font-weight: 600; }
+.kv-appbar-title { font-weight: 600; font-size: 14px; letter-spacing: -0.005em; }
+.kv-appbar .kv-icon-button { width: 26px; height: 26px; padding: 0; border-color: transparent; }
+.kv-appbar .kv-icon-button svg { width: 16px; height: 16px; }
 .kv-app { flex: 1; min-height: 0; }
 
 /* ---- narrower windows (minimum is 960 × 640; the grid still degrades gracefully) ---- */
