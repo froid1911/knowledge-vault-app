@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { parseReadyLine } from "./lib/ready-line.mjs";
 
 const noShell = process.argv.includes("--no-shell");
+const fresh = process.argv.includes("--fresh"); // wipe the dev store first (e2e runs start from nothing)
 const TOKEN = "dev-token";
 const children = [];
 const run = (cmd, args, opts = {}) => {
@@ -12,6 +13,11 @@ const run = (cmd, args, opts = {}) => {
   return child;
 };
 
+if (fresh) {
+  const { rmSync } = await import("node:fs");
+  rmSync(".dev-data", { recursive: true, force: true });
+  console.log("[dev] fresh store: .dev-data removed");
+}
 console.log("[dev] building and starting the sidecar…");
 await new Promise((resolve, reject) => {
   const b = spawn("bun", ["run", "--cwd", "sidecar", "build"], { stdio: "inherit" });

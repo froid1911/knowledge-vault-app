@@ -9,6 +9,7 @@ export type SidecarConfig = {
   protected: boolean;
   adminAddress: string | undefined;
   appVersion: string;
+  logLevel: string;
 };
 
 type Env = Record<string, string | undefined>;
@@ -39,6 +40,7 @@ export function readSidecarConfig(env: Env): SidecarConfig {
     protected: isProtected,
     adminAddress,
     appVersion: env.KV_APP_VERSION || "dev",
+    logLevel: env.KV_LOG_LEVEL || "info",
   };
 }
 
@@ -62,7 +64,7 @@ export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string): 
     PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES: "127.0.0.1/32,::1/128",
     SWITCHBOARD_APP_NAME: "desktop-knowledge-vault",
     MCP_ENABLED: "true",
-    LOG_LEVEL: "info",
+    LOG_LEVEL: cfg.logLevel,
     NODE_ENV: "production",
   };
 }

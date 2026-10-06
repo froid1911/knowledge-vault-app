@@ -22,6 +22,7 @@ describe("readSidecarConfig", () => {
       protected: false,
       adminAddress: undefined,
       appVersion: "0.1.0",
+      logLevel: "info",
     });
   });
   it("refuses to start without a data dir or token", () => {
