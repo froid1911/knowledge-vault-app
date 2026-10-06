@@ -1,5 +1,8 @@
 # Desktop Knowledge Vault — Phase 3 "Remote vaults" Implementation Plan (outline — expand to bite-sized TDD steps before execution)
 
+> **Status after Phase 1-lite (2026-10-06):** client-mode remote vaults exist — the host-provided bearer in the package, per-origin clients, the engine-minted token cache, the address parser, the access check and remote tiles (`2026-10-06-phase1-lite-launcher-settings-workflows.md`, Tasks 8–9). Still to do here: the 401 → renew flow when the weekly token expires, the server-too-old probe, the offline banner, and protected *local* vaults through the same bearer path (with Plan 1 Task 3).
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Interfaces, contracts and tests are fixed here; expand each task into write-test / run / implement / run / commit steps when Phase 2 has landed.
 
 **Goal:** A signed-in user connects a remote vault (`https://switchboard.knowledge-vault.vetra.io/graphql`, drive `c5893e1b-854b-49b1-b8aa-6b133ab87969` or its slug) and opens it in client mode with their Renown bearer; authorisation failures, expiry, offline and too-old servers are explained in place. The same mechanism opens **protected local vaults**.

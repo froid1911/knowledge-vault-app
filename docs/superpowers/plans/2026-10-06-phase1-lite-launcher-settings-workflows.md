@@ -23,6 +23,10 @@ key and the pipeline template (Plan 2), remote vaults (Plan 3).
 4. **The Workflows drive is created once** — `GET /workflows` is idempotent (`/d/workflows` first, create only if absent) and the drive never appears in the vault list. Pinned by `vaults.test.ts`.
 5. **Full view inside a workspace** — vault and Workflow Studio screens render no landing chrome; the app bar carries the only way back and the gear. Pinned by the e2e (sidebar/landing header absent while a vault is open).
 
+## Status (2026-10-06)
+
+Tasks 1–4 landed in `dda61aa` (plus the Studio runtime-URL fix); Tasks 7–9 below were added at the user's request and landed in `7155353`; Task 5's e2e additions and the live run are in progress; Task 6 is this update. Pulled forward from Plan 1 (Task 2, identity; Task 5, the Identity section) and Plan 3 (client-mode remote vaults).
+
 ## Tasks
 
 ### Task 1 — Sidecar: management routes and richer status
@@ -44,6 +48,15 @@ key and the pipeline template (Plan 2), remote vaults (Plan 3).
 ### Task 5 — e2e, screenshots, live run
 - e2e: landing → ⚙ → Settings sections; rename a vault from its ⋯ menu; delete the E2E vault with the typed confirmation; Workflows renders Studio; inside a vault no landing header is present. Screenshots of landing, settings, workflows for the critique pass. Live run with the user.
 
+### Task 7 — Sidecar: identity (done)
+- `sidecar/src/identity.ts` (SDK injected for tests), routes `/auth/status|login|cancel|logout|token`; `@renown/sdk` pinned at the stack version; user key and credential under `secrets/` (0600). Tests: `identity.test.ts` (pending → authenticated, idempotent start, cancel records the error, token only when signed in), `control.test.ts`.
+
+### Task 8 — Sidecar: remote vaults (done)
+- `sidecar/src/remote.ts`: `parseRemoteVaultInput`, `checkRemoteVault` (401/403/404 → typed errors), `read/writeRemoteVaults` in config.json; routes `/remote-vaults`, `/remote-vaults/check`, `DELETE /remote-vaults/:id`. Tests: `remote.test.ts`, `control.test.ts`.
+
+### Task 9 — Host: identity and remote vaults (done)
+- `host/src/api/identity.ts` (`createTokenProvider` caches until a minute before expiry; 401 → no token), `host/src/api/remote.ts`, `host/src/state/use-identity.ts` (polls while pending), `bootstrap.ts` (`declareDesktopHost(origin, { bearer, identity })` + the package's change event), `reactor.ts` (per-origin clients, `activate`), `RemoteWorkspaceScreen`, `ConnectRemoteDialog`, remote tiles with the server's host, the identity chip, Settings › Identity. Vault package: host-config `bearer`/`identity`, `useVaultIdentity` (commit `4bc48842` on `feat/desktop-host-mode`). Tests: `identity.test.ts`, `Landing.test.tsx` (connect flow), `Identity.test.tsx`, `bootstrap.test.ts`.
+
 ### Task 6 — docs and ledger
 - Spec §5.2/§5.8 updated (no sidebar; Settings layout; Workflows entry; external browser done); Plan 1/2 adjusted for what exists; ledger entries; ledger copy under `docs/superpowers/ledgers/`.
 
@@ -52,4 +65,5 @@ key and the pipeline template (Plan 2), remote vaults (Plan 3).
 - Settings opens full-page with its sections; Appearance switches the theme; Models persists endpoint/model/key (key stored 0600 in the engine's secrets, never returned); Diagnostics shows state, ports, data dir and the copy blocks; About shows the three versions.
 - Workflows opens Workflow Studio full-view on the engine-created Workflows drive; the drive never appears as a vault.
 - Inside a vault or Studio there is no landing chrome; ← Vaults and ⚙ are in the app bar.
+- Signing in opens the browser from the engine and the app picks the credential up; a remote vault can be checked, added and opened as the signed-in user (verified live against `switchboard.knowledge-vault.vetra.io`).
 - `bun run tsc`, `bun run test`, `bun run stack:check`, `cargo clippy`, `cargo test`, `bun run e2e` pass.

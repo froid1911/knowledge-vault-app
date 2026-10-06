@@ -1,5 +1,8 @@
 # Desktop Knowledge Vault — Phase 1 "Vaults and identity" Implementation Plan
 
+> **Status after Phase 1-lite (2026-10-06):** Task 2 (sidecar identity: Renown browser flow, status, logout, tokens; `/auth/*`) and the Identity section of Task 5 exist — see `2026-10-06-phase1-lite-launcher-settings-workflows.md`. Still to do here: Task 1 (open-mode REST guard following the server's auth setting; host auth hint), Task 3 (the protection switch and the engine signing as the user), Task 4's remaining hooks, Task 6's e2e.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The designed landing (spec §5.7) with vault tiles and first-run creation; Renown sign-in through the sidecar and the system browser; the **Protect local vaults** switch (sidecar restart into protected mode, user identity as the engine's signer); Settings with Identity, Vaults, Diagnostics and About.
