@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchVaultGraph, type VaultGraphSample } from "../api/graph.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fetchFullGraph, fetchVaultGraph, type FullGraph, type VaultGraphSample } from "../api/graph.js";
 import { createTokenProvider, type IdentityStatus } from "../api/identity.js";
 import { addRemoteVault, authorizedFetch, checkRemoteVault, fetchRemoteVaults, removeRemoteVault, type RemoteCheck, type RemoteVault } from "../api/remote.js";
 import type { SidecarInfo } from "../sidecar.js";
@@ -26,6 +26,8 @@ export type LandingApi = {
   addRemote: (info: SidecarInfo, url: string, drive: string | undefined) => Promise<RemoteVault>;
   removeRemote: (info: SidecarInfo, id: string) => Promise<void>;
   fetchGraph: (origin: string, driveId: string, maxNodes: number, fetchImpl?: typeof fetch) => Promise<VaultGraphSample>;
+  /** The whole graph for a tile with a saved layout — asked for once per vault and graph size per session. */
+  fetchFullGraph: (origin: string, driveId: string, fetchImpl?: typeof fetch) => Promise<FullGraph>;
   fetchVersion: (info: SidecarInfo) => Promise<string>;
   loadLayout: (driveId: string) => Promise<Map<string, XY> | null>;
   /** The user's bearer for remote servers; built per engine when not injected. */
@@ -42,10 +44,14 @@ export const realLandingApi: LandingApi = {
   addRemote: addRemoteVault,
   removeRemote: removeRemoteVault,
   fetchGraph: (origin, driveId, maxNodes, fetchImpl) => fetchVaultGraph(origin, driveId, { maxNodes }, fetchImpl),
+  fetchFullGraph,
   fetchVersion: async (info) => (await fetchStatus(info)).appVersion,
   loadLayout: loadSavedLayout,
   tokenProvider: (info) => createTokenProvider(info),
 };
+
+/** Whole graphs already fetched this session, keyed by vault and graph size (a changed count refetches). */
+const fullGraphs = new Map<string, FullGraph>();
 
 /** Local and remote vaults share the grid; recency orders both. */
 type AnyVault = ({ kind: "local" } & VaultSummary) | RemoteVault;
@@ -79,6 +85,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
   const [recents, setRecents] = useState<Recents>(() => readRecents(store));
   const [samples, setSamples] = useState<Record<string, VaultGraphSample | null>>({});
   const [layouts, setLayouts] = useState<Record<string, Map<string, XY> | null>>({});
+  const [fulls, setFulls] = useState<Record<string, FullGraph | null>>({});
   const [version, setVersion] = useState<string | undefined>();
   const [showForm, setShowForm] = useState(newVault);
   const [connecting, setConnecting] = useState(false);
@@ -119,26 +126,55 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
   const all = useMemo<AnyVault[]>(() => [...(vaults ?? []).map((v) => ({ kind: "local" as const, ...v })), ...remotes], [vaults, remotes]);
   const ordered = useMemo(() => sortByRecency(all, recents), [all, recents]);
 
+  // Each vault's sample and saved layout are asked for once; results land whenever they arrive
+  // (a state update after unmount is harmless, and gating on a stale flag dropped results).
+  const requested = useRef(new Set<string>());
   useEffect(() => {
     if (!info || !vaults) return;
-    let alive = true;
     for (const [i, v] of ordered.entries()) {
-      if (v.id in samples) continue;
+      if (requested.current.has(v.id)) continue;
+      requested.current.add(v.id);
       const origin = v.kind === "remote" ? v.switchboardUrl : info.origin;
       const fetchImpl = v.kind === "remote" && tokenProvider ? authorizedFetch(tokenProvider) : undefined;
       api
         .fetchGraph(origin, v.id, i === 0 ? 48 : 28, fetchImpl)
-        .then((s) => alive && setSamples((prev) => ({ ...prev, [v.id]: s })))
-        .catch(() => alive && setSamples((prev) => ({ ...prev, [v.id]: null })));
+        .then((s) => setSamples((prev) => ({ ...prev, [v.id]: s })))
+        .catch(() => setSamples((prev) => ({ ...prev, [v.id]: null })));
       api
         .loadLayout(v.id)
-        .then((l) => alive && setLayouts((prev) => ({ ...prev, [v.id]: l })))
-        .catch(() => alive && setLayouts((prev) => ({ ...prev, [v.id]: null })));
+        .then((l) => setLayouts((prev) => ({ ...prev, [v.id]: l })))
+        .catch(() => setLayouts((prev) => ({ ...prev, [v.id]: null })));
     }
-    return () => {
-      alive = false;
-    };
-  }, [api, info, vaults, ordered, samples, tokenProvider]);
+  }, [api, info, vaults, ordered, tokenProvider]);
+
+  // The whole graph, only for vaults the person has laid out (a saved layout exists) and once the
+  // sample told us the graph's size — the cache key — so a vault is downloaded once per session.
+  const requestedFull = useRef(new Set<string>());
+  useEffect(() => {
+    if (!info) return;
+    for (const v of ordered) {
+      const saved = layouts[v.id];
+      const sample = samples[v.id];
+      if (!saved || !sample) continue;
+      const origin = v.kind === "remote" ? v.switchboardUrl : info.origin;
+      const key = `${origin}|${v.id}|${sample.noteCount}|${sample.linkCount}`;
+      if (requestedFull.current.has(key)) continue;
+      requestedFull.current.add(key);
+      const cached = fullGraphs.get(key);
+      if (cached) {
+        setFulls((prev) => ({ ...prev, [v.id]: cached }));
+        continue;
+      }
+      const fetchImpl = v.kind === "remote" && tokenProvider ? authorizedFetch(tokenProvider) : undefined;
+      api
+        .fetchFullGraph(origin, v.id, fetchImpl)
+        .then((g) => {
+          fullGraphs.set(key, g);
+          setFulls((prev) => ({ ...prev, [v.id]: g }));
+        })
+        .catch(() => {});
+    }
+  }, [api, info, ordered, layouts, samples, tokenProvider]);
 
   const open = useCallback(
     (v: AnyVault) => {
@@ -260,6 +296,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
                     lead={i === 0}
                     opened={recents[v.id]}
                     sample={samples[v.id] ?? null}
+                    full={fulls[v.id] ?? null}
                     saved={layouts[v.id] ?? null}
                     onOpen={() => open(v)}
                     menu={<VaultMenu name={v.name} onOpen={() => open(v)} onRemove={() => { setDialogError(null); setRemoving(v); }} />}
@@ -270,6 +307,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
                     lead={i === 0}
                     opened={recents[v.id]}
                     sample={samples[v.id] ?? null}
+                    full={fulls[v.id] ?? null}
                     saved={layouts[v.id] ?? null}
                     onOpen={() => open(v)}
                     menu={<VaultMenu name={v.name} onOpen={() => open(v)} onRename={() => { setDialogError(null); setRenaming(v); }} onDelete={() => { setDialogError(null); setDeleting(v); }} />}

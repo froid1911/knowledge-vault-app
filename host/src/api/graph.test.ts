@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSample, chooseSeed, fetchVaultGraph, forwardLinksQuery, graphEndpoint } from "./graph.js";
+import { buildSample, chooseSeed, fetchFullGraph, fetchVaultGraph, forwardLinksQuery, graphEndpoint } from "./graph.js";
 
 const node = (id: string, status: string | null = "CANONICAL", documentType = "bai/knowledge-note") => ({ documentId: id, status, documentType });
 
@@ -60,6 +60,28 @@ describe("graph sampling", () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: { stats: { noteCount: 0, edgeCount: 0, mocCount: 0 }, mocs: [], recent: [] } })));
     const sample = await fetchVaultGraph("http://127.0.0.1:4201", "d1", { maxNodes: 40 }, fetchImpl as unknown as typeof fetch);
     expect(sample).toEqual({ noteCount: 0, linkCount: 0, mocCount: 0, nodes: [], edges: [] });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fetchFullGraph", () => {
+  it("returns every note and map with its status, and only knowledge edges between them, deduplicated", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ data: {
+        nodes: [node("m1", "MOC", "bai/moc"), node("n1", "CANONICAL"), node("n2", "DRAFT"), node("t1", "OPEN", "bai/tension")],
+        edges: [
+          { sourceDocumentId: "m1", targetDocumentId: "n1", linkType: "CORE_IDEA" },
+          { sourceDocumentId: "n1", targetDocumentId: "m1", linkType: "RELATES_TO" }, // same pair
+          { sourceDocumentId: "n1", targetDocumentId: "n2", linkType: "BUILDS_ON" },
+          { sourceDocumentId: "t1", targetDocumentId: "n1", linkType: "INVOLVES" }, // derived
+          { sourceDocumentId: "n2", targetDocumentId: "gone", linkType: "RELATES_TO" }, // dangling
+        ],
+      } })),
+    );
+    const g = await fetchFullGraph("http://127.0.0.1:4201", "d1", fetchImpl as unknown as typeof fetch);
+    expect(g.nodes.map((n) => n.id)).toEqual(["m1", "n1", "n2"]);
+    expect(g.edges).toEqual([["m1", "n1"], ["n1", "n2"]]);
+    expect(g).toMatchObject({ noteCount: 2, linkCount: 2 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

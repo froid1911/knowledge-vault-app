@@ -204,3 +204,10 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-link { padding: 0; border: 0; background: none; color: var(--bai-accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .kv-tile-remote { margin: 2px 0 0; color: var(--bai-text-tertiary); font-size: 13px; }
 .kv-remote-check { margin: 0; color: var(--bai-text-secondary); }
+
+/* ---- the whole graph as a minimap (a saved layout exists) ---- */
+.kv-minimap { position: relative; width: 100%; height: 100%; }
+.kv-minimap canvas { display: block; width: 100%; height: 100%; }
+.kv-minimap[data-settled="false"] { opacity: 0; }
+.kv-minimap[data-settled="true"] { opacity: 1; transition: opacity 600ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .kv-minimap[data-settled="true"] { transition: none; } }

@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { VaultGraphSample } from "../api/graph.js";
+import type { FullGraph, VaultGraphSample } from "../api/graph.js";
 import type { VaultSummary } from "../vaults.js";
 import { Constellation } from "./Constellation.js";
+import { GraphMinimap } from "./GraphMinimap.js";
+import { hasUsableLayout } from "./minimap.js";
 import { formatOpened } from "./recents.js";
 import type { XY } from "./saved-layout.js";
 
@@ -20,6 +22,8 @@ type Props = {
   lead: boolean;
   opened: string | undefined;
   sample: VaultGraphSample | null;
+  /** The whole graph, fetched once a saved layout exists; drawn as the real graph when the layout covers it. */
+  full?: FullGraph | null;
   saved: Map<string, XY> | null;
   onOpen: () => void;
   /** The ⋯ menu, rendered beside the tile's open area (a button cannot contain a button). */
@@ -29,20 +33,25 @@ type Props = {
 };
 
 /** One vault: the open area is a single button; the constellation is the vault's own graph. */
-export function VaultTile({ vault, lead, opened, sample, saved, onOpen, menu, remote }: Props) {
+export function VaultTile({ vault, lead, opened, sample, full = null, saved, onOpen, menu, remote }: Props) {
   const [settled, setSettled] = useState(false);
   useEffect(() => {
-    if (sample === null) return;
+    if (sample === null && full === null) return;
     const frame = requestAnimationFrame(() => setSettled(true));
     return () => cancelAnimationFrame(frame);
-  }, [sample]);
+  }, [sample, full]);
+  const wholeGraph = full && saved && hasUsableLayout(full, saved) ? full : null;
   const width = lead ? 660 : 320;
   const height = lead ? 330 : 130;
   return (
     <article className="kv-tile" data-lead={lead}>
       <button type="button" className="kv-tile-main" onClick={onOpen} aria-label={`Open ${vault.name}`}>
         <div className="kv-tile-sky">
-          <Constellation sample={sample} saved={saved} seed={vault.id} width={width} height={height} settled={settled} />
+          {wholeGraph && saved ? (
+            <GraphMinimap graph={wholeGraph} positions={saved} settled={settled} />
+          ) : (
+            <Constellation sample={sample} saved={saved} seed={vault.id} width={width} height={height} settled={settled} />
+          )}
         </div>
         <div className="kv-tile-body">
           <h3 className="kv-tile-name">{vault.name}</h3>

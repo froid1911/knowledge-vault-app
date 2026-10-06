@@ -132,3 +132,37 @@ export async function fetchVaultGraph(
   }
   return buildSample({ stats: first.stats, seed, connections, links, maxNodes: opts.maxNodes });
 }
+
+/** The whole graph, for a tile that can draw it: every note and map with its status, and the knowledge edges between them. */
+export type FullGraph = { nodes: GraphNodeLite[]; edges: [string, string][]; noteCount: number; linkCount: number };
+
+export async function fetchFullGraph(origin: string, driveId: string, fetchImpl: typeof fetch = fetch): Promise<FullGraph> {
+  const data = await gql<{ nodes: RawNode[]; edges: RawLink[] }>(
+    graphEndpoint(origin),
+    `query Full($driveId: ID!) {
+      nodes: knowledgeGraphNodes(driveId: $driveId) { documentId status documentType }
+      edges: knowledgeGraphEdges(driveId: $driveId) { sourceDocumentId targetDocumentId linkType }
+    }`,
+    { driveId },
+    fetchImpl,
+  );
+  const nodes: GraphNodeLite[] = [];
+  const seen = new Set<string>();
+  for (const n of data.nodes) {
+    const kind = kindOf(n);
+    if (!kind || seen.has(n.documentId)) continue;
+    seen.add(n.documentId);
+    nodes.push({ id: n.documentId, kind, status: n.status });
+  }
+  const edges: [string, string][] = [];
+  const pairs = new Set<string>();
+  for (const l of data.edges) {
+    if (l.linkType && DERIVED.has(l.linkType)) continue;
+    if (!seen.has(l.sourceDocumentId) || !seen.has(l.targetDocumentId) || l.sourceDocumentId === l.targetDocumentId) continue;
+    const key = [l.sourceDocumentId, l.targetDocumentId].sort().join("\u0000");
+    if (pairs.has(key)) continue;
+    pairs.add(key);
+    edges.push([l.sourceDocumentId, l.targetDocumentId]);
+  }
+  return { nodes, edges, noteCount: nodes.filter((n) => n.kind === "note").length, linkCount: edges.length };
+}

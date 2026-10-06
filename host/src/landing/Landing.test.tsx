@@ -21,6 +21,7 @@ function api(over: Partial<LandingApi> = {}): LandingApi {
     addRemote: vi.fn(async (_i, url: string, drive: string | undefined) => ({ kind: "remote" as const, id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, addedAt: "2026-10-06T12:00:00Z" })),
     removeRemote: vi.fn(async () => {}),
     fetchGraph: vi.fn(async () => sample),
+    fetchFullGraph: vi.fn(async () => ({ nodes: sample.nodes, edges: sample.edges, noteCount: 371, linkCount: 1208 })),
     fetchVersion: vi.fn(async () => "0.1.0"),
     loadLayout: vi.fn(async () => null),
     ...over,
@@ -131,5 +132,20 @@ describe("Landing", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Open powerhouse-knowledge" })).toBeTruthy());
     expect(screen.getByText("On switchboard.knowledge-vault.vetra.io")).toBeTruthy();
     expect(a.fetchGraph).toHaveBeenCalledWith("https://switchboard.knowledge-vault.vetra.io", "c589", expect.any(Number), undefined);
+  });
+
+  it("draws the whole graph when the vault's saved layout covers it, and the sample otherwise", async () => {
+    const positions = new Map([["a", { x: 0, y: 0 }], ["b", { x: 10, y: 0 }], ["c", { x: 5, y: 8 }]]);
+    const a = api({
+      fetchVaults: vi.fn(async () => [{ id: "laid", slug: "l", name: "Laid out", noteCount: 3 }, { id: "fresh", slug: "f", name: "Fresh", noteCount: 3 }]),
+      loadLayout: vi.fn(async (id: string) => (id === "laid" ? positions : null)),
+    });
+    const { container } = render(<Landing engine={{ state: "ready" }} info={info} api={a} storage={memoryStorage()} />);
+    await waitFor(() => expect(container.querySelector(".kv-minimap")).toBeTruthy());
+    expect(a.fetchFullGraph).toHaveBeenCalledTimes(1);
+    expect(a.fetchFullGraph).toHaveBeenCalledWith(info.origin, "laid", undefined);
+    const freshTile = screen.getByRole("button", { name: "Open Fresh" }).closest(".kv-tile")!;
+    expect(freshTile.querySelector(".kv-constellation")).toBeTruthy();
+    expect(freshTile.querySelector(".kv-minimap")).toBeNull();
   });
 });
