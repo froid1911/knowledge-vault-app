@@ -66,8 +66,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the Knowledge Vault shell")
         .run(|app, event| {
-            // Cmd+Q and other exits skip CloseRequested; stop the engine here too (a no-op once stopped).
-            if let tauri::RunEvent::ExitRequested { .. } = event {
+            // ExitRequested fires when the last window closes or app.exit() runs. macOS Cmd+Q goes
+            // through NSApp terminate: and arrives only as RunEvent::Exit — so both stop the engine
+            // (idempotent: the second call finds no child).
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
                 stop_sidecar(app);
             }
         });

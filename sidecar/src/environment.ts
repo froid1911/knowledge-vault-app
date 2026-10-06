@@ -6,6 +6,11 @@
  * NODE_OPTIONS preload must never reach the engine, so inheritance is an
  * allowlist, not a denylist that is complete only until the next Switchboard
  * release reads a new variable.
+ *
+ * Scope: this runs inside the sidecar's own node process, after the node
+ * binary has already honoured NODE_OPTIONS / NODE_PATH for that process. What
+ * it protects is what the Switchboard reads from process.env and what every
+ * child the engine spawns (piece workers, the system browser) inherits.
  */
 type Env = Record<string, string | undefined>;
 
@@ -19,19 +24,22 @@ const KEEP = new Set([
   "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
   // Windows
-  "SystemRoot", "SYSTEMROOT", "SystemDrive", "windir", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+  "Path", "SystemRoot", "SYSTEMROOT", "SystemDrive", "windir", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
   "PROGRAMDATA", "ProgramData", "HOMEDRIVE", "HOMEPATH", "PATHEXT", "COMSPEC", "ComSpec", "NUMBER_OF_PROCESSORS",
   "USERNAME", "PROCESSOR_ARCHITECTURE",
   // macOS
   "__CF_USER_TEXT_ENCODING",
 ]);
 const KEEP_PREFIXES = ["LC_", "KV_"];
+/** Our own config stays (KV_*), except the control token: the sidecar has read it, and nothing the engine spawns should inherit it. */
+const DROP = new Set(["KV_CONTROL_TOKEN"]);
 
 /** The environment the engine runs with: the allowlisted inheritance, then the matrix (which always wins). */
 export function engineEnvironment(inherited: Env, matrix: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(inherited)) {
     if (value === undefined) continue;
+    if (DROP.has(key)) continue;
     if (KEEP.has(key) || KEEP_PREFIXES.some((prefix) => key.startsWith(prefix))) env[key] = value;
   }
   return { ...env, ...matrix };

@@ -38,6 +38,10 @@ async function main(): Promise<void> {
   // `./.ph`, the registry cache) lands in app-data, never beside the code.
   process.chdir(cfg.dataDir);
 
+  // A missing package directory would degrade to an engine without the vault (the loader logs a miss and goes on); fail loudly instead.
+  for (const dir of PACKAGE_DIRS) {
+    if (!existsSync(dir)) throw new Error(`package directory missing: ${dir} (run \`bun install\` in sidecar/)`);
+  }
   const { startSwitchboard } = await import("@powerhousedao/switchboard/server");
   const options = switchboardOptions(cfg, configFile, PACKAGE_DIRS);
   const switchboard = await startSwitchboard(options);

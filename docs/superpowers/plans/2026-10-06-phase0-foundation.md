@@ -2532,7 +2532,9 @@ plan, for whoever writes the next ones:
   Plan 1. The e2e now asserts that every request targets one of the three loopback ports.
 - **`app_data_dir()` is shared with the webview profile** — the engine's files now live under `vault/` (spec §3.3).
 - **`stop_sidecar` waited on readiness, not on the child's life** — a sidecar still booting was killed at once. The
-  shell now tracks `running` from spawn to termination and keys the wait on it; `ExitRequested` (Cmd+Q) stops too.
+  shell now tracks `running` from spawn to termination and keys the wait on it. Exits: `ExitRequested` covers the
+  last window closing and `app.exit()`; macOS Cmd+Q arrives only as `RunEvent::Exit`, so the shell stops the engine
+  on both (verify on the Phase 6 macOS build — untestable on Linux).
 - **Review Focus #3 overstated what Task 3's test pinned** — the "declared after the package booted" branch had no
   test; `boot.test.ts` now has `LATE DESKTOP HOST`.
 - **Task 10 Step 6 expected a "Starting the engine…" state that `await resolveSidecar()` before mount could never
@@ -2540,5 +2542,9 @@ plan, for whoever writes the next ones:
 - **`Object.assign(process.env, matrix)` is not "nothing else is inherited"** — the sidecar now applies an
   allowlist (`environment.ts`) before starting the Switchboard.
 - **The `node_modules` link into app-data could dangle into `EEXIST` on every launch** — packages are passed to
-  the loader by directory instead; `prepareDataDir` removes a leftover link.
+  the loader by directory instead; `prepareDataDir` removes a leftover link. The route a directory takes in dev.44 is
+  reactor-api's `ImportPackageLoader.loadDependency(dir, sub)` → directory import fails → `tryNodeSuggestedPaths` →
+  `<dir>/dist/node/<sub>/index.mjs` (the dist-layout convention, not the manifest's `exports`; `isFsPath` →
+  `resolveFromPackageDir` only serves the worker model sources), and pieces via `pieceListLocation` →
+  `<dir>/dist/node/pieces/index.mjs`. Debug a loader miss there.
 - **The e2e wiped the developer's `.dev-data`** — it runs on `.e2e-data` (`dev.mjs --data-dir`).

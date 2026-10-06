@@ -60,3 +60,6 @@ The engine restarts itself after a crash and explains when it can't; upgrades ba
 - The piece registry logs `@powerhousedao/piece-reactor is shipped twice` (the sidecar's copy of
   `@powerhousedao/workflow` and bun's root cache, same version — it keeps one). Harmless today; a version drift
   between the two would not be. The stack-version check should cover duplicated stack packages in the install tree.
+- `SidecarState::default()` reads as `exited` with no code. Unobservable today (Tauri runs setup before any IPC), but
+  the restart gap between `Terminated` and the next spawn will surface it — model `never_started` / `restarting`
+  explicitly when the supervisor arrives.

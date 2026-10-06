@@ -31,12 +31,19 @@ describe("engineEnvironment", () => {
       PATH: "/usr/bin", HOME: "/home/u", LANG: "de_DE.UTF-8", LC_ALL: "C.UTF-8", TZ: "Europe/Berlin", TMPDIR: "/tmp",
       DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus", XDG_RUNTIME_DIR: "/run/user/1000",
       HTTPS_PROXY: "http://proxy:3128", NO_PROXY: "127.0.0.1", SSL_CERT_FILE: "/etc/ssl/ca.pem", NODE_EXTRA_CA_CERTS: "/etc/ssl/corp.pem",
-      SystemRoot: "C:\\Windows", APPDATA: "C:\\Users\\u\\AppData\\Roaming",
+      SystemRoot: "C:\\Windows", APPDATA: "C:\\Users\\u\\AppData\\Roaming", Path: "C:\\Windows\\System32",
       KV_DATA_DIR: "/data", KV_LOG_LEVEL: "debug",
     };
     const env = engineEnvironment(inherited, matrix);
     for (const [key, value] of Object.entries(inherited)) expect(env[key], key).toBe(value);
     expect(env.PORT).toBe("4201");
+  });
+
+  it("keeps our KV_* config but never the control token — nothing the engine spawns should inherit it", () => {
+    const env = engineEnvironment({ KV_DATA_DIR: "/data", KV_CONTROL_TOKEN: "secret", KV_STDIN_STOP: "1" }, matrix);
+    expect(env.KV_DATA_DIR).toBe("/data");
+    expect(env.KV_STDIN_STOP).toBe("1");
+    expect(env).not.toHaveProperty("KV_CONTROL_TOKEN");
   });
 
   it("ignores inherited keys with undefined values and never invents keys", () => {

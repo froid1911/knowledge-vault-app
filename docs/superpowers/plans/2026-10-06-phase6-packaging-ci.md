@@ -58,3 +58,5 @@ README: install instructions per platform (macOS right-click → Open), where da
   for the engine ports, `'self'` for the host, no remote script).
 - The sidecar's `secrets/` and `umask 077` assume a POSIX file system; verify the Windows build keeps secrets private
   (ACLs) when Windows is added.
+- macOS manual check: Cmd+Q must stop the engine (the shell handles `RunEvent::Exit` for it; `ExitRequested` never
+  fires for Cmd+Q). Confirm no `node` process survives and the store lock is released.
