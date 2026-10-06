@@ -1278,8 +1278,16 @@ async function convertWithoutBinding(
   }
 }
 
-/** Below this many words per page a text layer reads as a scan with a stray header, not as the document. */
+/**
+ * From this many pages on, a text layer under this many words per page reads
+ * as a scan with a stray header, not as the document. Shorter documents are
+ * judged only by having words at all: a certificate or a cover page with a
+ * handful of words is a document, not a scan.
+ */
+const TEXT_LAYER_FLOOR_FROM_PAGES = 3;
 const TEXT_LAYER_MIN_WORDS_PER_PAGE = 10;
+/** Fewer words than this in the whole file is a stray mark, not text. */
+const TEXT_LAYER_MIN_WORDS = 3;
 
 /**
  * A PDF through the pdf.js text layer alone — the rung that works without the
@@ -1322,14 +1330,17 @@ async function convertPdfTextLayer(
   if (job) job.pages = layer.pages;
   const words = layer.text.split(/\s+/).filter(Boolean).length;
   const perPage = words / Math.max(1, layer.pages);
-  if (words === 0 || perPage < TEXT_LAYER_MIN_WORDS_PER_PAGE || looksGarbled(layer.text)) {
+  const thin = layer.pages >= TEXT_LAYER_FLOOR_FROM_PAGES && perPage < TEXT_LAYER_MIN_WORDS_PER_PAGE;
+  if (words < TEXT_LAYER_MIN_WORDS || thin || looksGarbled(layer.text)) {
     refuse({
       error:
         words === 0
           ? `this PDF has no text layer — a scan. The converter's OCR would read it; ${opts.remedy}`
-          : perPage < TEXT_LAYER_MIN_WORDS_PER_PAGE
+          : thin
             ? `this PDF's text layer is too thin to be the document (${words} words over ${layer.pages} pages — a scan with a header). The converter's OCR would read it; ${opts.remedy}`
-            : `this PDF's text layer is unreadable (encoded fonts). The converter would read it; ${opts.remedy}`,
+            : words < TEXT_LAYER_MIN_WORDS
+              ? `this PDF's text layer holds only ${words} word${words === 1 ? "" : "s"} — a scan with a stray mark. The converter's OCR would read it; ${opts.remedy}`
+              : `this PDF's text layer is unreadable (encoded fonts). The converter would read it; ${opts.remedy}`,
       pages: layer.pages,
       words,
       needsOcr: {
@@ -1340,8 +1351,9 @@ async function convertPdfTextLayer(
     return;
   }
   hooks.onPhase?.("structuring");
-  const dir = await mkdtemp(join(tmpdir(), "vault-convert-"));
+  let dir: string | null = null;
   try {
+    dir = await mkdtemp(join(tmpdir(), "vault-convert-"));
     const conversion = await conversionFromText(layer.markdown, dir, filename);
     finishJob(jobId, job, "done");
     sendJson(res, 200, {
@@ -1357,8 +1369,11 @@ async function convertPdfTextLayer(
       timings: { ...conversion.timings, ocrMs: 0, totalMs: Date.now() - started },
       binding,
     });
+  } catch (error) {
+    finishJob(jobId, job, "failed"); // the dispatcher answers 500 with the message
+    throw error;
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -1438,11 +1453,14 @@ async function handleConvert(
     if (format === "pdf") {
       // The binding without the models: the text layer still reads a text PDF
       // (the same rung as a fresh install); only a scan waits for the models.
-      await convertPdfTextLayer(filename, bytes, res, jobId, job, hooks, {
-        remedy: "install the PDF models",
-        missing: dependencies.missing,
-      });
-      busy = null;
+      try {
+        await convertPdfTextLayer(filename, bytes, res, jobId, job, hooks, {
+          remedy: "install the PDF models",
+          missing: dependencies.missing,
+        });
+      } finally {
+        busy = null;
+      }
       return;
     }
     busy = null;
