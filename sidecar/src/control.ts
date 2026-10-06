@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
-import type { ConverterStatus } from "./converter.js";
+import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
 import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 
@@ -29,7 +29,12 @@ export type ControlDeps = {
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
   /** Plan 4: the conversion helper; a saved conversion setting is applied right after it is written. */
-  converter: { status: () => Promise<ConverterStatus>; restart: () => Promise<ConverterStatus> };
+  converter: {
+    status: () => Promise<ConverterStatus>;
+    restart: () => Promise<ConverterStatus>;
+    install: (component: string) => Promise<ConverterStatus>;
+    remove: (component: string) => Promise<ConverterStatus>;
+  };
   applyConversion: (settings: ConversionSettings) => Promise<void>;
   auth: {
     status: () => Promise<IdentityStatus>;
@@ -163,6 +168,13 @@ export function createControlServer(deps: ControlDeps) {
       // conversion helper (Plan 4)
       if (req.method === "GET" && url.pathname === "/converter") return send(res, 200, await deps.converter.status(), allowed);
       if (req.method === "POST" && url.pathname === "/converter/restart") return send(res, 200, await deps.converter.restart(), allowed);
+      if (req.method === "POST" && (url.pathname === "/converter/install" || url.pathname === "/converter/remove")) {
+        const body = await readJson(req);
+        const component = typeof body.component === "string" ? body.component : "";
+        if (!component) return send(res, 400, { error: "Name the component: binding or models." }, allowed);
+        if (url.pathname.endsWith("/install")) return send(res, 202, await deps.converter.install(component), allowed);
+        return send(res, 200, await deps.converter.remove(component), allowed);
+      }
       // identity (spec §4.6 /auth/*)
       if (req.method === "GET" && url.pathname === "/auth/status") return send(res, 200, await deps.auth.status(), allowed);
       if (req.method === "POST" && url.pathname === "/auth/login") return send(res, 202, await deps.auth.startLogin(), allowed);
@@ -202,7 +214,8 @@ export function createControlServer(deps: ControlDeps) {
       }
       return send(res, 404, { error: "Not found" }, allowed);
     } catch (error) {
-      if (error instanceof BadRequestError || error instanceof SettingsError) return send(res, 400, { error: error.message }, allowed);
+      if (error instanceof BadRequestError || error instanceof SettingsError || error instanceof ConverterInputError) return send(res, 400, { error: error.message }, allowed);
+      if (error instanceof ConverterBusyError) return send(res, 409, { error: error.message }, allowed);
       if (error instanceof NotAVaultError) return send(res, 404, { error: error.message }, allowed);
       if (error instanceof RemoteInputError) return send(res, 400, { error: error.message }, allowed);
       if (error instanceof RemoteAuthError) return send(res, 401, { error: error.message }, allowed);

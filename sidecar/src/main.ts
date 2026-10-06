@@ -114,7 +114,12 @@ async function main(): Promise<void> {
     workflowsDrive: singleFlight(() => ensureWorkflowsDrive(origin)),
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
-    converter: { status: () => converter.status(), restart: () => converter.restart() },
+    converter: {
+      status: () => converter.status(),
+      restart: () => converter.restart(),
+      install: (component) => converter.install(component),
+      remove: (component) => converter.remove(component),
+    },
     applyConversion: (settings) => converter.apply(settings),
     auth: {
       status: () => identity.status(),

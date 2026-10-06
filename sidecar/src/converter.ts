@@ -1,7 +1,11 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { appendFileSync, createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { installBinding, installedBinding, removeBinding, type BindingManifest, type InstallProgress } from "./converter/install.js";
+import { installModels, modelsInstalled, removeModels, type ModelsProgress } from "./converter/models.js";
+import { platformTriple, type PlatformTriple } from "./converter/platform.js";
 import { engineEnvironment } from "./environment.js";
 import type { ConversionSettings } from "./settings.js";
 
@@ -33,7 +37,42 @@ export type ConverterStatus = {
   /** The active service's own health answer, when it could be reached. */
   health: Record<string, unknown> | null;
   error: string | null;
+  /** Stage B: what is installed in app-data, and what this machine could install. */
+  installed: {
+    binding: { installed: boolean; version: string | null; supported: boolean; platform: PlatformTriple | null; reason: string | null };
+    models: { installed: boolean };
+  };
+  /** The install in progress, or the last one until the next starts. */
+  job: InstallJob | null;
 };
+
+export type ConverterComponent = "binding" | "models";
+export type InstallJob = {
+  component: ConverterComponent;
+  phase: "downloading" | "verifying" | "extracting" | "fetching" | "done" | "failed";
+  percent: number | null;
+  bytes: number;
+  total: number | null;
+  message: string;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+/** The install/remove primitives, injectable for tests. */
+export type Installer = {
+  installBinding(onProgress: (p: InstallProgress) => void): Promise<BindingManifest>;
+  installModels(onProgress: (p: ModelsProgress) => void): Promise<void>;
+  removeBinding(): void;
+  removeModels(): void;
+  bindingInstalled(): BindingManifest | null;
+  modelsInstalled(): boolean;
+};
+
+/** Another install is running (the control API answers 409). */
+export class ConverterBusyError extends Error {}
+/** A component this machine cannot install, or an order it does not allow (400). */
+export class ConverterInputError extends Error {}
 
 export type ConverterChild = {
   pid?: number | undefined;
@@ -61,6 +100,10 @@ export type ConverterDeps = {
   readyIntervalMs?: number;
   restartWindowMs?: number;
   stopTimeoutMs?: number;
+  /** Which binding this machine can install; detected when absent. */
+  platform?: { triple: PlatformTriple | null; reason: string | null };
+  installer?: Installer;
+  registry?: string;
 };
 
 /** The helper inherits the OS/session allowlist only — none of the engine's matrix, none of our KV_* config. */
@@ -82,6 +125,22 @@ export function createConverterManager(deps: ConverterDeps) {
   const restartWindowMs = deps.restartWindowMs ?? 30_000;
   const stopTimeoutMs = deps.stopTimeoutMs ?? 5_000;
   const logPath = join(deps.dataDir, "logs", "converter.log");
+  const converterDir = join(deps.dataDir, "converter");
+  const modulesDir = join(converterDir, "node_modules");
+  const modelsDir = join(converterDir, "models");
+  // Shipped beside this file (src/ in tests, dist/ when built): resolves `docling.rs` to the installed binding inside the helper.
+  const hooksPath = fileURLToPath(new URL("./converter-hooks.mjs", import.meta.url));
+  const platform = deps.platform ?? platformTriple();
+  const installer: Installer = deps.installer ?? {
+    installBinding: (onProgress) => installBinding({ dir: converterDir, triple: platform.triple ?? "", registry: deps.registry, onProgress }),
+    installModels: (onProgress) =>
+      installModels({ modelsDir, script: join(dirname(deps.entry), "fetch-models.mjs"), hooks: hooksPath, modulesDir, nodePath: deps.nodePath, env: deps.env, onProgress }),
+    removeBinding: () => removeBinding(converterDir),
+    removeModels: () => removeModels(modelsDir),
+    bindingInstalled: () => installedBinding(converterDir),
+    modelsInstalled: () => modelsInstalled(modelsDir),
+  };
+  let job: InstallJob | null = null;
 
   let mode: ConversionSettings["mode"] = "off";
   let remoteUrl = "";
@@ -105,9 +164,10 @@ export function createConverterManager(deps: ConverterDeps) {
     const port = await pickPort();
     const url = `http://127.0.0.1:${port}`;
     mkdirSync(join(deps.dataDir, "logs"), { recursive: true });
-    const proc = spawnImpl(deps.nodePath, [deps.entry], {
+    const proc = spawnImpl(deps.nodePath, ["--import", hooksPath, deps.entry], {
       env: {
         ...deps.env,
+        CONVERTER_MODULES_DIR: modulesDir,
         CONVERT_SERVICE_HOST: "127.0.0.1",
         CONVERT_SERVICE_PORT: String(port),
         DOCLING_RS_HOME: join(deps.dataDir, "converter", "models"),
@@ -216,6 +276,91 @@ export function createConverterManager(deps: ConverterDeps) {
     return status();
   }
 
+  const jobActive = (): boolean => job !== null && job.phase !== "done" && job.phase !== "failed";
+  const mb = (bytes: number): string => (bytes / 1_048_576).toFixed(bytes > 100 * 1_048_576 ? 0 : 1);
+
+  /** Start installing a component; the job runs on, `status()` reports it. */
+  async function install(component: string): Promise<ConverterStatus> {
+    if (component !== "binding" && component !== "models") throw new ConverterInputError("Unknown component.");
+    if (jobActive()) throw new ConverterBusyError(`Already installing the ${job!.component}.`);
+    if (component === "binding" && !platform.triple) throw new ConverterInputError(platform.reason ?? "No converter binding for this platform.");
+    if (component === "models" && !installer.bindingInstalled()) throw new ConverterInputError("Install the converter's binding first — it is what reads and verifies the models.");
+    const started: InstallJob = {
+      component,
+      phase: component === "binding" ? "downloading" : "fetching",
+      percent: null,
+      bytes: 0,
+      total: null,
+      message: component === "binding" ? "Starting the download…" : "Fetching the models…",
+      error: null,
+      startedAt: new Date(now()).toISOString(),
+      finishedAt: null,
+    };
+    job = started;
+    void runInstall(started);
+    return status();
+  }
+
+  async function runInstall(current: InstallJob): Promise<void> {
+    try {
+      if (current.component === "binding") {
+        await installer.installBinding((p) => {
+          if (job !== current) return;
+          if (p.phase === "downloading") {
+            current.phase = "downloading";
+            current.bytes = p.bytes ?? current.bytes;
+            current.total = p.total ?? current.total;
+            current.percent = p.total && p.bytes !== undefined ? Math.min(100, Math.round((100 * p.bytes) / p.total)) : null;
+            current.message = `Downloading ${p.file ?? "the binding"} — ${current.percent === null ? `${mb(current.bytes)} MB` : `${current.percent} %`}`;
+          } else if (p.phase === "verifying" || p.phase === "extracting") {
+            current.phase = p.phase;
+            current.message = `${p.phase === "verifying" ? "Verifying" : "Unpacking"} ${p.file ?? "the binding"}…`;
+          } else if (p.phase === "metadata") {
+            current.message = `Looking up ${p.file ?? "the binding"}…`;
+          }
+        });
+        finish(current, "Installed.");
+        log("binding installed");
+        // The helper probes the binding once per process: restart it so it loads what was just installed.
+        if (mode === "local") await restart();
+      } else {
+        await installer.installModels((p) => {
+          if (job !== current) return;
+          current.bytes = p.bytes;
+          current.message = p.file ? `Fetching ${basename(p.file)} — ${mb(p.bytes)} MB so far` : `Fetching the models — ${mb(p.bytes)} MB so far`;
+        });
+        finish(current, "Installed.");
+        log("models installed");
+        if (mode === "local" && child) await restart(); // a warm pipeline without the models on disk would be wrong
+      }
+    } catch (error) {
+      current.phase = "failed";
+      current.error = error instanceof Error ? error.message : String(error);
+      current.finishedAt = new Date(now()).toISOString();
+      log(`install ${current.component} failed: ${current.error}`);
+    }
+  }
+
+  function finish(current: InstallJob, message: string): void {
+    current.phase = "done";
+    current.percent = 100;
+    current.message = message;
+    current.finishedAt = new Date(now()).toISOString();
+  }
+
+  /** Remove a component; the helper restarts so it drops what it had loaded (memory included). */
+  async function remove(component: string): Promise<ConverterStatus> {
+    if (component !== "binding" && component !== "models") throw new ConverterInputError("Unknown component.");
+    if (jobActive()) throw new ConverterBusyError(`Already installing the ${job!.component}.`);
+    const wasRunning = child !== null;
+    if (wasRunning) await stop();
+    if (component === "binding") installer.removeBinding();
+    else installer.removeModels();
+    job = null;
+    if (mode === "local" && wasRunning) await start();
+    return status();
+  }
+
   async function status(): Promise<ConverterStatus> {
     const url = mode === "local" ? localUrl : mode === "remote" ? remoteUrl || null : null;
     let health: Record<string, unknown> | null = null;
@@ -227,10 +372,27 @@ export function createConverterManager(deps: ConverterDeps) {
         health = null;
       }
     }
-    return { mode, state, url, localUrl, pid: child?.pid ?? null, exitCode, restarts, logPath, health, error };
+    const manifest = installer.bindingInstalled();
+    return {
+      mode,
+      state,
+      url,
+      localUrl,
+      pid: child?.pid ?? null,
+      exitCode,
+      restarts,
+      logPath,
+      health,
+      error,
+      installed: {
+        binding: { installed: manifest !== null, version: manifest?.version ?? null, supported: platform.triple !== null, platform: platform.triple, reason: platform.reason },
+        models: { installed: installer.modelsInstalled() },
+      },
+      job,
+    };
   }
 
-  return { apply, start, stop, restart, status };
+  return { apply, start, stop, restart, status, install, remove };
 }
 
 export type ConverterManager = ReturnType<typeof createConverterManager>;

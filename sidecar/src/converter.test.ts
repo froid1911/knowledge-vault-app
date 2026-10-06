@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { converterEnvironment, createConverterManager, type ConverterDeps } from "./converter.js";
+import { ConverterBusyError, ConverterInputError, converterEnvironment, createConverterManager, type ConverterDeps, type Installer } from "./converter.js";
+import type { BindingManifest } from "./converter/install.js";
 
 class FakeChild extends EventEmitter {
   pid = 4242;
@@ -66,9 +67,10 @@ describe("converter manager", () => {
     const h = harness();
     await h.manager.apply({ mode: "local", remoteUrl: "" });
     expect(h.spawns).toHaveLength(1);
-    expect(h.spawns[0]).toMatchObject({ cmd: "/usr/bin/node", args: ["/app/sidecar/converter/server.ts"] });
+    expect(h.spawns[0]).toMatchObject({ cmd: "/usr/bin/node", args: ["--import", expect.stringMatching(/converter-hooks\.mjs$/), "/app/sidecar/converter/server.ts"] });
     expect(h.spawns[0]!.env).toMatchObject({
       PATH: "/bin",
+      CONVERTER_MODULES_DIR: join(h.dataDir, "converter", "node_modules"),
       CONVERT_SERVICE_HOST: "127.0.0.1",
       CONVERT_SERVICE_PORT: "5999",
       DOCLING_RS_HOME: join(h.dataDir, "converter", "models"),
@@ -154,6 +156,107 @@ describe("converter manager", () => {
     expect(await h.manager.status()).toMatchObject({ state: "down", url: null });
     expect((await h.manager.status()).error).toMatch(/did not answer/);
     expect(h.children[0]!.killed).toContain("SIGKILL");
+  });
+});
+
+/** An installer whose state the tests control; the binding install can be held open. */
+function fakeInstaller(opts: { hold?: boolean } = {}) {
+  const state = { binding: null as BindingManifest | null, models: false, holdResolve: null as null | (() => void) };
+  const installer: Installer = {
+    installBinding: async (onProgress) => {
+      onProgress({ phase: "metadata", file: "docling.rs" });
+      onProgress({ phase: "downloading", file: "docling.rs-linux-x64-gnu", bytes: 42, total: 100 });
+      if (opts.hold) await new Promise<void>((resolve) => (state.holdResolve = resolve));
+      onProgress({ phase: "verifying", file: "docling.rs-linux-x64-gnu" });
+      onProgress({ phase: "extracting", file: "docling.rs-linux-x64-gnu" });
+      onProgress({ phase: "done" });
+      state.binding = { version: "1.58.0", platform: "linux-x64-gnu", installedAt: "2026-10-06T00:00:00.000Z", bytes: 100 };
+      return state.binding;
+    },
+    installModels: async (onProgress) => {
+      onProgress({ file: ".models/layout_heron.onnx", bytes: 4096, lines: [] });
+      state.models = true;
+    },
+    removeBinding: () => void (state.binding = null),
+    removeModels: () => void (state.models = false),
+    bindingInstalled: () => state.binding,
+    modelsInstalled: () => state.models,
+  };
+  return { installer, state };
+}
+const linux = { triple: "linux-x64-gnu" as const, reason: null };
+
+describe("converter manager — installing", () => {
+  it("installs the binding as a job the status reports, then restarts the helper so it loads it", async () => {
+    const { installer, state } = fakeInstaller({ hold: true });
+    const h = harness({ installer, platform: linux });
+    await h.manager.apply({ mode: "local", remoteUrl: "" });
+    expect((await h.manager.status()).installed).toEqual({ binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu", reason: null }, models: { installed: false } });
+    const started = await h.manager.install("binding");
+    expect(started.job).toMatchObject({ component: "binding", phase: "downloading", percent: 42, message: "Downloading docling.rs-linux-x64-gnu — 42 %" });
+    await expect(h.manager.install("models")).rejects.toBeInstanceOf(ConverterBusyError);
+    state.holdResolve!();
+    await tick();
+    const done = await h.manager.status();
+    expect(done.job).toMatchObject({ component: "binding", phase: "done", percent: 100 });
+    expect(done.installed.binding).toMatchObject({ installed: true, version: "1.58.0" });
+    expect(h.spawns).toHaveLength(2); // restarted, so the helper's once-per-process probe sees the binding
+    expect(done.state).toBe("ready");
+  });
+
+  it("refuses the models before the binding, installs them after, and restarts the helper", async () => {
+    const { installer } = fakeInstaller();
+    const h = harness({ installer, platform: linux });
+    await h.manager.apply({ mode: "local", remoteUrl: "" });
+    await expect(h.manager.install("models")).rejects.toBeInstanceOf(ConverterInputError);
+    await h.manager.install("binding");
+    await tick();
+    const spawnsAfterBinding = h.spawns.length;
+    await h.manager.install("models");
+    await tick();
+    const status = await h.manager.status();
+    expect(status.job).toMatchObject({ component: "models", phase: "done" });
+    expect(status.installed.models.installed).toBe(true);
+    expect(h.spawns.length).toBe(spawnsAfterBinding + 1);
+  });
+
+  it("names the reason on a platform without a binding, and rejects unknown components", async () => {
+    const { installer } = fakeInstaller();
+    const h = harness({ installer, platform: { triple: null, reason: "The converter for macOS is coming." } });
+    await expect(h.manager.install("binding")).rejects.toThrow(/macOS/);
+    await expect(h.manager.install("docker")).rejects.toBeInstanceOf(ConverterInputError);
+    expect((await h.manager.status()).installed.binding).toMatchObject({ supported: false, reason: "The converter for macOS is coming." });
+  });
+
+  it("removing the binding stops the helper, removes it and starts the helper again without it", async () => {
+    const { installer, state } = fakeInstaller();
+    const h = harness({ installer, platform: linux });
+    await h.manager.apply({ mode: "local", remoteUrl: "" });
+    await h.manager.install("binding");
+    await tick();
+    const before = h.spawns.length;
+    const status = await h.manager.remove("binding");
+    expect(state.binding).toBeNull();
+    expect(status.installed.binding.installed).toBe(false);
+    expect(status.job).toBeNull();
+    expect(status.state).toBe("ready");
+    expect(h.spawns.length).toBe(before + 1);
+    expect(h.children.at(-2)!.killed).toContain("SIGTERM");
+  });
+
+  it("records a failed install with its reason and lets the next one start", async () => {
+    const { installer } = fakeInstaller();
+    installer.installBinding = async () => {
+      throw new Error("The download of x did not complete: ECONNRESET");
+    };
+    const h = harness({ installer, platform: linux });
+    await h.manager.apply({ mode: "local", remoteUrl: "" });
+    await h.manager.install("binding");
+    await tick();
+    const status = await h.manager.status();
+    expect(status.job).toMatchObject({ phase: "failed", error: expect.stringMatching(/ECONNRESET/) });
+    expect(h.spawns).toHaveLength(1); // no restart after a failure
+    await expect(h.manager.install("binding")).resolves.toBeTruthy(); // not busy any more
   });
 });
 
