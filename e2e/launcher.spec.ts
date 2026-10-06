@@ -1,32 +1,33 @@
 import { expect, test } from "@playwright/test";
 
-// Runs after open-vault.spec.ts on the same fresh store (workers: 1), so "E2E vault" already exists.
+// Self-contained: creates its own vault (first-run form, or "New vault" when vaults already exist).
 test("launcher: full view inside a vault, rename from the ⋯ menu, Settings sections, Workflow Studio reachable, typed delete", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Vaults" })).toBeVisible();
-  const tile = page.getByRole("button", { name: "Open E2E vault" });
-  await expect(tile).toBeVisible();
+  const newVault = page.getByRole("button", { name: "New vault" });
+  if (await newVault.isVisible().catch(() => false)) await newVault.click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Launcher vault");
+  await page.getByRole("button", { name: "Create vault" }).click();
 
-  // Inside a vault the landing's chrome is gone; the app bar is the only landmark.
-  await tile.click();
+  // Creating opens the vault. Inside, the landing's chrome is gone; the app bar is the only landmark.
   await expect(page.getByText("Notes", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole("heading", { name: "Knowledge Vault" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Workflows" })).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "App" })).toBeVisible();
   await page.getByRole("button", { name: "← Vaults" }).click();
+  await expect(page.getByRole("button", { name: "Open Launcher vault" })).toBeVisible();
 
   // Rename from the tile's menu.
-  await page.getByRole("button", { name: "More actions for E2E vault" }).click();
+  await page.getByRole("button", { name: "More actions for Launcher vault" }).click();
   await page.getByRole("menuitem", { name: "Rename" }).click();
-  const name = page.getByLabel("Name");
-  await name.fill("E2E vault renamed");
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Launcher vault renamed"); // exact: getByLabel("Name") also matches the dialog titled "Rename vault"
   await page.getByRole("button", { name: "Save name" }).click();
-  await expect(page.getByRole("button", { name: "Open E2E vault renamed" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Launcher vault renamed" })).toBeVisible();
 
-  // Settings: the sections list, Vaults, Models, Diagnostics.
+  // Settings: the sections list, Vaults, Models, Diagnostics, Appearance.
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
-  await expect(page.getByText("E2E vault renamed")).toBeVisible();
+  await expect(page.getByText("Launcher vault renamed")).toBeVisible();
   await page.getByRole("button", { name: "Models" }).click();
   await expect(page.getByLabel("Endpoint")).toBeVisible();
   await page.getByRole("button", { name: "Diagnostics" }).click();
@@ -42,14 +43,13 @@ test("launcher: full view inside a vault, rename from the ⋯ menu, Settings sec
   await expect(page.getByText(/runtime is unreachable/)).toHaveCount(0);
   await page.getByRole("button", { name: "← Vaults" }).click();
 
-  // Delete needs the name typed; the tile disappears and the first-run form returns.
-  await page.getByRole("button", { name: "More actions for E2E vault renamed" }).click();
+  // Delete needs the name typed; the tile disappears.
+  await page.getByRole("button", { name: "More actions for Launcher vault renamed" }).click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
   const del = page.getByRole("button", { name: "Delete vault" });
   await expect(del).toBeDisabled();
-  await page.getByLabel("Type the vault’s name to confirm").fill("E2E vault renamed");
+  await page.getByLabel("Type the vault’s name to confirm").fill("Launcher vault renamed");
   await expect(del).toBeEnabled();
   await del.click();
-  await expect(page.getByRole("button", { name: "Open E2E vault renamed" })).toHaveCount(0);
-  await expect(page.getByText("Create your first vault")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Launcher vault renamed" })).toHaveCount(0);
 });

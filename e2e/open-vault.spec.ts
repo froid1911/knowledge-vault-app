@@ -12,7 +12,10 @@ test("create a vault on the landing and open the Knowledge Vault app against the
   expect(await page.evaluate(() => document.documentElement.dataset.baiTheme)).toBe("dark");
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe("rgb(30, 30, 46)");
   await page.screenshot({ path: "test-results/landing-dark.png" });
-  await page.getByLabel("Name").fill("E2E vault");
+  // First run shows the form; with vaults already present (another spec ran first) "New vault" opens it.
+  const newVault = page.getByRole("button", { name: "New vault" });
+  if (await newVault.isVisible().catch(() => false)) await newVault.click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("E2E vault");
   await page.getByRole("button", { name: "Create vault" }).click();
 
   // The vault app (from @powerhousedao/knowledge-note) renders its sidebar.
