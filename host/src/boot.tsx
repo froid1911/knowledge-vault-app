@@ -1,6 +1,7 @@
 import { initTheme, useTheme, type GraphQLReactorClient } from "@powerhousedao/reactor-browser";
 import { useEffect, useState, type ComponentType } from "react";
 import { declareDesktopHost } from "./bootstrap.js";
+import { Landing } from "./screens/Landing.js";
 import { watchSidecar, type SidecarInfo, type SidecarStatus, type StatusWatcher } from "./sidecar.js";
 
 export type LoadedApp = {
@@ -67,25 +68,14 @@ export function Boot({ watch = watchSidecar, load = loadApp }: { watch?: StatusW
     };
   }, [status, app, load]);
 
-  if (status.state === "exited") {
-    return (
-      <EngineScreen
-        kind="alert"
-        title="The engine stopped"
-        detail={`Exit code ${status.code ?? "unknown"}. Restart the app; if it happens again, the logs are in the app-data folder.`}
-      />
-    );
-  }
+  // The landing's frame — header, "Vaults", status strip — is on screen from the first paint;
+  // the engine's state lives in the strip, so nothing jumps when the vaults arrive.
+  if (status.state === "exited") return <Landing engine={{ state: "exited", code: status.code }} />;
+  if (status.state === "failed") return <Landing engine={status} />;
   if (failure) return <EngineScreen kind="alert" title="The vault app could not load" detail={failure} />;
   if (status.state === "ready" && app) {
     const App = app.App;
     return <App info={status.info} client={app.client} />;
   }
-  return (
-    <EngineScreen
-      kind="status"
-      title="Starting the engine…"
-      detail={status.state === "ready" ? "Loading the vault app." : "Opening your store."}
-    />
-  );
+  return <Landing engine={{ state: "starting" }} />;
 }

@@ -19,7 +19,7 @@ export function App({ info, client }: { info: SidecarInfo; client: GraphQLReacto
   return (
     <RenownProvider appName="desktop-knowledge-vault" url="https://www.renown.id" switchboardUrl={info.origin}>
       {route.name === "landing" ? (
-        <Landing info={info} onOpen={(v) => setRoute({ name: "vault", id: v.id, title: v.name })} />
+        <Landing engine={{ state: "ready" }} info={info} onOpen={(v) => setRoute({ name: "vault", id: v.id, title: v.name })} />
       ) : (
         <VaultScreen client={client} driveId={route.id} title={route.title} onBack={() => setRoute({ name: "landing" })} />
       )}

@@ -1,0 +1,50 @@
+import { useEffect, useState } from "react";
+import type { VaultGraphSample } from "../api/graph.js";
+import type { VaultSummary } from "../vaults.js";
+import { Constellation } from "./Constellation.js";
+import { formatOpened } from "./recents.js";
+import type { XY } from "./saved-layout.js";
+
+const number = new Intl.NumberFormat("en-US");
+
+export function tileSentence(vault: VaultSummary, sample: VaultGraphSample | null, opened: string | undefined, now = new Date()): string {
+  const notes = sample?.noteCount ?? vault.noteCount;
+  if (notes === 0) return "No notes yet. Open it and add your first source.";
+  const parts = [`${number.format(notes)} note${notes === 1 ? "" : "s"}`];
+  if (sample) parts.push(`${number.format(sample.linkCount)} link${sample.linkCount === 1 ? "" : "s"}`);
+  return `${parts.join(" and ")}, ${formatOpened(opened, now)}.`;
+}
+
+type Props = {
+  vault: VaultSummary;
+  lead: boolean;
+  opened: string | undefined;
+  sample: VaultGraphSample | null;
+  saved: Map<string, XY> | null;
+  onOpen: () => void;
+};
+
+/** One vault. The whole tile opens it; the constellation is the vault's own graph. */
+export function VaultTile({ vault, lead, opened, sample, saved, onOpen }: Props) {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (sample === null) return;
+    const frame = requestAnimationFrame(() => setSettled(true));
+    return () => cancelAnimationFrame(frame);
+  }, [sample]);
+  // The canvas keeps the tile's own proportions, so nothing is cropped (the SVG letterboxes in the same colour).
+  const width = lead ? 660 : 320;
+  const height = lead ? 330 : 130;
+  return (
+    <button type="button" className="kv-tile" data-lead={lead} onClick={onOpen} aria-label={`Open ${vault.name}`}>
+      <div className="kv-tile-sky">
+        <Constellation sample={sample} saved={saved} seed={vault.id} width={width} height={height} settled={settled} />
+      </div>
+      <div className="kv-tile-body">
+        <h3 className="kv-tile-name">{vault.name}</h3>
+        <p className="kv-tile-meta">{tileSentence(vault, sample, opened)}</p>
+        {lead && <span className="kv-tile-open">Open</span>}
+      </div>
+    </button>
+  );
+}

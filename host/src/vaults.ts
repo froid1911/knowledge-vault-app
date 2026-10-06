@@ -20,3 +20,7 @@ export async function fetchVaults(info: SidecarInfo, fetchImpl: typeof fetch = f
 export async function createVault(info: SidecarInfo, name: string, fetchImpl: typeof fetch = fetch): Promise<VaultSummary> {
   return (await control<{ vault: VaultSummary }>(info, "/vaults", { method: "POST", body: JSON.stringify({ name }) }, fetchImpl)).vault;
 }
+export type EngineStatus = { ok: true; port: number; controlPort: number; appVersion: string; protected: boolean };
+export async function fetchStatus(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<EngineStatus> {
+  return control<EngineStatus>(info, "/status", { method: "GET" }, fetchImpl);
+}

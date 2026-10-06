@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Boot } from "./boot.js";
 import type { SidecarStatus } from "./sidecar.js";
 
@@ -9,6 +9,8 @@ vi.mock("@powerhousedao/reactor-browser", () => ({
   initTheme: () => {},
   useTheme: () => ({ theme: "dark", isSystem: false, setTheme: () => {} }),
 }));
+
+afterEach(() => cleanup());
 
 function fakeWatcher() {
   let cb: ((s: SidecarStatus) => void) | undefined;

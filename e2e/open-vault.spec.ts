@@ -21,6 +21,8 @@ test("create a vault on the landing and open the Knowledge Vault app against the
   await expect(page.getByText("Sign in to open this vault")).toHaveCount(0); // open mode: no gate
 
   await page.getByRole("button", { name: "← Vaults" }).click();
-  await expect(page.getByRole("button", { name: /E2E vault/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open E2E vault" })).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/landing-with-vault.png" });
   expect(foreign, "only the three loopback ports may be contacted").toEqual([]);
 });

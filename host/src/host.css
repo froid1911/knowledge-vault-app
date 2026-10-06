@@ -1,31 +1,101 @@
-/* host/src/host.css — Phase 0 chrome. Colours only through the vault app's tokens (spec §5.7); they
-   resolve from `data-bai-theme` on <html> (index.html before first paint, boot.tsx afterwards).
-   The designed landing arrives in Phase 1. */
-html { background: var(--bai-bg, Canvas); color: var(--bai-text, CanvasText); font-family: Inter, system-ui, sans-serif; }
-body, #root { margin: 0; height: 100vh; }
+/* host/src/host.css — the shell's chrome. Colours only through the vault app's tokens (spec §5.7);
+   they resolve from `data-bai-theme` on <html> (index.html before first paint, boot.tsx afterwards). */
+:root {
+  --kv-font-ui: "Inter Variable", Inter, system-ui, sans-serif;
+  --kv-font-name: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --kv-measure: 1040px;
+  --kv-gutter: 24px;
+}
+html { background: var(--bai-bg, Canvas); color: var(--bai-text, CanvasText); font-family: var(--kv-font-ui); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+body, #root { margin: 0; min-height: 100vh; }
 
-.kv-landing { max-width: 1040px; margin: 0 auto; padding: 32px 24px; }
-.kv-landing h1 { font-size: 20px; font-weight: 600; margin: 0 0 24px; }
-.kv-landing h2 { font-size: 14px; font-weight: 600; color: var(--bai-text-tertiary); margin: 0 0 12px; }
-.kv-vaults { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-.kv-vaults button { width: 100%; text-align: left; padding: 16px; border: 1px solid var(--bai-border); border-radius: 8px; background: var(--bai-surface); color: var(--bai-text); cursor: pointer; font: inherit; }
-.kv-vaults button:hover { background: var(--bai-hover); }
-.kv-vault-name { display: block; font-weight: 600; }
-.kv-vault-meta { color: var(--bai-text-tertiary); font-size: 14px; }
-.kv-new-vault { display: flex; gap: 8px; align-items: center; margin-top: 24px; }
-.kv-new-vault input { padding: 8px 10px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); font: inherit; }
-.kv-new-vault button, .kv-appbar button { padding: 8px 12px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); cursor: pointer; font: inherit; }
-.kv-new-vault button:not(:disabled) { background: var(--bai-accent); color: var(--bai-accent-text); border-color: transparent; }
-.kv-new-vault button:disabled { color: var(--bai-text-muted); cursor: default; }
-.kv-landing [role="alert"] { color: var(--bai-danger); }
-:is(.kv-vaults, .kv-new-vault, .kv-appbar) :is(button, input):focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 2px; }
+/* ---- the landing frame: header / main / status strip ---- */
+.kv-landing { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.kv-header { width: 100%; max-width: var(--kv-measure); margin: 0 auto; padding: 22px var(--kv-gutter) 6px; display: flex; align-items: center; gap: 10px; box-sizing: border-box; }
+.kv-header img { width: 28px; height: 28px; display: block; }
+.kv-header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+.kv-main { width: 100%; max-width: var(--kv-measure); margin: 0 auto; padding: 28px var(--kv-gutter) 48px; box-sizing: border-box; }
+.kv-vaults-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
+.kv-vaults-row h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.015em; margin: 0; }
+.kv-actions { display: flex; gap: 8px; }
+.kv-quiet { color: var(--bai-text-tertiary); margin: 8px 0 0; }
 
+/* ---- tiles ---- */
+.kv-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 212px; grid-auto-flow: dense; gap: 16px; }
+.kv-grid-cell { display: contents; }
+.kv-tile { display: flex; flex-direction: column; width: 100%; height: 100%; padding: 0; text-align: left; border: 1px solid var(--bai-border); border-radius: 10px; background: var(--bai-surface); color: var(--bai-text); overflow: hidden; cursor: pointer; font: inherit; }
+.kv-tile[data-lead="true"] { grid-column: span 2; grid-row: span 2; }
+.kv-tile:hover { border-color: var(--bai-text-muted); }
+.kv-tile:focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 2px; }
+.kv-tile-sky { flex: 1 1 auto; min-height: 0; background: var(--bai-deep); }
+.kv-constellation { display: block; width: 100%; height: 100%; }
+.kv-tile-body { flex: 0 0 auto; padding: 12px 16px 14px; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: end; border-top: 1px solid var(--bai-border); }
+.kv-tile-name { grid-column: 1; font-family: var(--kv-font-name); font-weight: 500; font-size: 22px; line-height: 1.15; letter-spacing: -0.005em; margin: 0; overflow-wrap: anywhere; }
+.kv-tile[data-lead="true"] .kv-tile-name { font-size: 32px; }
+.kv-tile-meta { grid-column: 1; color: var(--bai-text-tertiary); font-size: 14px; margin: 4px 0 0; }
+.kv-tile-open { grid-column: 2; grid-row: 1 / span 2; align-self: end; padding: 7px 14px; border-radius: 6px; background: var(--bai-accent); color: var(--bai-accent-text); font-weight: 500; font-size: 14px; }
+
+/* the constellation: real nodes carry the graph view's status colours; MoCs the accent; placeholders stay quiet */
+.kv-constellation-scene { transform-box: view-box; transform-origin: center; transform: scale(1); opacity: 1; }
+.kv-constellation[data-settled="false"] .kv-constellation-scene { transform: scale(0.4); opacity: 0; }
+.kv-constellation[data-settled="true"] .kv-constellation-scene { transition: transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 500ms ease-out; }
+.kv-constellation line { stroke: var(--bai-text-faint); stroke-width: 1; stroke-opacity: 0.8; }
+.kv-constellation .kv-node { fill: var(--bai-text-muted); }
+.kv-constellation .kv-node[data-status="DRAFT"] { fill: var(--bai-status-draft); }
+.kv-constellation .kv-node[data-status="IN_REVIEW"] { fill: var(--bai-status-review); }
+.kv-constellation .kv-node[data-status="CANONICAL"] { fill: var(--bai-status-canonical); }
+.kv-constellation .kv-node[data-status="ARCHIVED"] { fill: var(--bai-status-archived); }
+.kv-constellation .kv-node-moc { fill: var(--bai-accent); }
+.kv-constellation[data-real="false"] .kv-node { fill: var(--bai-text-faint); }
+@media (prefers-reduced-motion: reduce) { .kv-constellation .kv-constellation-scene { transition: none; } }
+
+/* ---- create form ---- */
+.kv-create { max-width: 640px; margin: 0 0 28px; }
+.kv-create-first { margin-top: 8px; }
+.kv-create-heading { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+.kv-create-first .kv-create-heading { font-size: 24px; letter-spacing: -0.015em; }
+.kv-new-vault { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.kv-new-vault label { font-weight: 500; }
+.kv-new-vault input { flex: 1 1 240px; min-width: 0; padding: 9px 12px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-deep); color: var(--bai-text); font: inherit; }
+.kv-new-vault input::placeholder { color: var(--bai-text-muted); }
+.kv-new-vault input:focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 1px; }
+.kv-reason, .kv-hint { color: var(--bai-text-tertiary); font-size: 14px; margin: 10px 0 0; }
+.kv-error { color: var(--bai-danger); margin: 10px 0 0; }
+
+/* ---- buttons ---- */
+.kv-button { padding: 8px 14px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); font: inherit; font-weight: 500; cursor: pointer; }
+.kv-button:hover:not(:disabled) { background: var(--bai-hover); }
+.kv-button:disabled { color: var(--bai-text-muted); cursor: default; }
+.kv-button-primary:not(:disabled) { background: var(--bai-accent); color: var(--bai-accent-text); border-color: transparent; }
+.kv-button-primary:hover:not(:disabled) { background: var(--bai-accent-hover); }
+.kv-button:focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 2px; }
+
+/* ---- status strip ---- */
+.kv-strip { border-top: 1px solid var(--bai-border); background: var(--bai-surface); }
+.kv-strip-inner { width: 100%; max-width: var(--kv-measure); margin: 0 auto; padding: 10px var(--kv-gutter); box-sizing: border-box; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--bai-text-tertiary); }
+.kv-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--bai-status-canonical); }
+.kv-strip[data-state="starting"] .kv-dot { background: var(--bai-status-draft); }
+.kv-strip[data-state="exited"] .kv-dot { background: var(--bai-danger); }
+.kv-strip-state { color: var(--bai-text); font-weight: 500; }
+.kv-strip[data-state="exited"] .kv-strip-state { color: var(--bai-danger); }
+.kv-strip-privacy { flex: 1 1 auto; }
+.kv-strip-version { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ---- engine screen (app-load failure only) ---- */
 .kv-engine { height: 100vh; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px; margin: 0; }
 .kv-engine-title { font-size: 18px; font-weight: 600; margin: 0; }
 .kv-engine[data-kind="alert"] .kv-engine-title { color: var(--bai-danger); }
 .kv-engine-detail { color: var(--bai-text-tertiary); margin: 0; max-width: 48ch; }
 
+/* ---- inside a vault ---- */
 .kv-vault-screen { display: flex; flex-direction: column; height: 100vh; }
 .kv-appbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--bai-border); background: var(--bai-surface); }
+.kv-appbar button { padding: 6px 10px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-surface); color: var(--bai-text); font: inherit; cursor: pointer; }
+.kv-appbar button:hover { background: var(--bai-hover); }
+.kv-appbar button:focus-visible { outline: 2px solid var(--bai-accent); outline-offset: 2px; }
 .kv-appbar-title { font-weight: 600; }
 .kv-app { flex: 1; min-height: 0; }
+
+/* ---- narrower windows (minimum is 960 × 640; the grid still degrades gracefully) ---- */
+@media (max-width: 1100px) { .kv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .kv-grid { grid-template-columns: 1fr; } .kv-tile[data-lead="true"] { grid-column: span 1; grid-row: span 1; } .kv-strip-privacy { display: none; } }

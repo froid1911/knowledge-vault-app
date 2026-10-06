@@ -1,5 +1,8 @@
 import { createElement, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+// Self-hosted type (spec §2: nothing leaves the machine): Inter for the UI, Source Serif 4 for vault names.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/source-serif-4";
 import "@powerhousedao/design-system/style.css";
 import "@powerhousedao/knowledge-note/style.css";
 import "@powerhousedao/workflow/style.css";

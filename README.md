@@ -9,3 +9,12 @@ Design: `docs/superpowers/specs/2026-10-06-desktop-knowledge-vault-design.md`. P
 - `bun run test`, `bun run tsc`, `bun run stack:check`
 
 Requires the vault package checked out at `../bai-knowledge-note` and built there (`bun run build`).
+
+### Demo data
+
+With the dev loop running, seed a vault with real notes, maps and links (for screenshots and manual testing):
+
+```bash
+node scripts/seed-demo-vault.mjs --name "Research notes" --size large
+node scripts/seed-demo-vault.mjs --name "Team wiki" --size small
+```
