@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
  * Hash routes: a desktop webview reloads at the app's root, so a path-based
  * history would 404 on reload in production; the hash is invisible to the user.
  */
-export const SETTINGS_SECTIONS = ["vaults", "appearance", "models", "workflows", "diagnostics", "about", "identity"] as const;
+export const SETTINGS_SECTIONS = ["vaults", "appearance", "models", "conversion", "workflows", "diagnostics", "about", "identity"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export type Route =
   | { name: "vaults"; newVault?: boolean }

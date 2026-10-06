@@ -213,3 +213,15 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-minimap[data-settled="false"] { opacity: 0; }
 .kv-minimap[data-settled="true"] { opacity: 1; transition: opacity 600ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .kv-minimap[data-settled="true"] { transition: none; } }
+
+/* ---- Settings › Conversion (Plan 4) ---- */
+.kv-converter { display: grid; gap: 8px; padding: 14px 16px; margin-bottom: 20px; border: 1px solid var(--bai-border, rgba(255, 255, 255, 0.08)); border-radius: 10px; }
+.kv-converter-head { display: flex; align-items: center; gap: 10px; }
+.kv-converter-reads { margin: 0; color: var(--bai-text-muted); }
+.kv-converter[data-state="ready"] .kv-dot { background: var(--bai-status-canonical); }
+.kv-converter[data-state="starting"] .kv-dot { background: var(--bai-status-draft); }
+.kv-converter[data-state="off"] .kv-dot { background: var(--bai-text-faint); }
+.kv-converter[data-state="down"] .kv-dot { background: var(--bai-danger); }
+.kv-radios { display: grid; gap: 8px; border: 0; padding: 0; margin: 0 0 12px; }
+.kv-radios legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+.kv-radios label { display: flex; align-items: center; gap: 8px; }

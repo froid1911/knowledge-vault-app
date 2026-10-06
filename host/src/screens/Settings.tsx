@@ -1,9 +1,10 @@
 import type { SidecarInfo } from "../sidecar.js";
-import { deleteVault, fetchSettings, fetchStatus, fetchVaults, renameVault, saveSettings, type AppSettings, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary } from "../vaults.js";
+import { deleteVault, fetchConverter, fetchSettings, fetchStatus, fetchVaults, renameVault, restartConverter, saveSettings, type AppSettings, type ConverterStatus, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary } from "../vaults.js";
 import { AppBar } from "../shell/AppBar.js";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../shell/router.js";
 import { AboutSection } from "../settings/About.js";
 import { AppearanceSection } from "../settings/Appearance.js";
+import { ConversionSection } from "../settings/Conversion.js";
 import { DiagnosticsSection } from "../settings/Diagnostics.js";
 import { IdentitySection } from "../settings/Identity.js";
 import type { IdentityController } from "../state/use-identity.js";
@@ -18,13 +19,16 @@ export type SettingsApi = {
   fetchSettings: (info: SidecarInfo) => Promise<AppSettings>;
   saveSettings: (info: SidecarInfo, patch: SettingsPatch) => Promise<AppSettings>;
   fetchStatus: (info: SidecarInfo) => Promise<EngineStatus>;
+  fetchConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
+  restartConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
 };
-export const realSettingsApi: SettingsApi = { fetchVaults, renameVault, deleteVault, fetchSettings, saveSettings, fetchStatus };
+export const realSettingsApi: SettingsApi = { fetchVaults, renameVault, deleteVault, fetchSettings, saveSettings, fetchStatus, fetchConverter, restartConverter };
 
 const LABELS: Record<SettingsSection, string> = {
   vaults: "Vaults",
   appearance: "Appearance",
   models: "Models",
+  conversion: "Conversion",
   workflows: "Workflows",
   diagnostics: "Diagnostics",
   about: "About",
@@ -59,6 +63,7 @@ export function Settings({ info, section, onSection, onBack, onOpenWorkflows, ap
           {section === "vaults" && <VaultsSection info={info} api={api} />}
           {section === "appearance" && <AppearanceSection />}
           {section === "models" && <ModelsSection info={info} api={api} />}
+          {section === "conversion" && <ConversionSection info={info} api={api} />}
           {section === "workflows" && <WorkflowsSection onOpen={onOpenWorkflows} />}
           {section === "diagnostics" && <DiagnosticsSection info={info} api={api} />}
           {section === "about" && <AboutSection info={info} api={api} />}

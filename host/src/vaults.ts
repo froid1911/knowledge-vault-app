@@ -41,11 +41,35 @@ export async function fetchWorkflowsDrive(info: SidecarInfo, fetchImpl: typeof f
   return (await control<{ drive: DriveRef }>(info, "/workflows", { method: "GET" }, fetchImpl)).drive;
 }
 export type ModelSettings = { endpoint: string; model: string; hasKey: boolean };
-export type AppSettings = { version: 1; models: ModelSettings };
-export type SettingsPatch = { models?: { endpoint?: string; model?: string; apiKey?: string | null } };
+/** Where documents convert (Plan 4): the helper on this computer, another server by URL, or nowhere. */
+export type ConversionMode = "local" | "remote" | "off";
+export type ConversionSettings = { mode: ConversionMode; remoteUrl: string };
+export type AppSettings = { version: 1; models: ModelSettings; conversion: ConversionSettings };
+export type SettingsPatch = {
+  models?: { endpoint?: string; model?: string; apiKey?: string | null };
+  conversion?: { mode?: ConversionMode; remoteUrl?: string };
+};
+export type ConverterStatus = {
+  mode: ConversionMode;
+  state: "off" | "starting" | "ready" | "down";
+  url: string | null;
+  localUrl: string | null;
+  pid: number | null;
+  exitCode: number | null;
+  restarts: number;
+  logPath: string;
+  health: Record<string, unknown> | null;
+  error: string | null;
+};
 export async function fetchSettings(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<AppSettings> {
   return control<AppSettings>(info, "/settings", { method: "GET" }, fetchImpl);
 }
 export async function saveSettings(info: SidecarInfo, patch: SettingsPatch, fetchImpl: typeof fetch = fetch): Promise<AppSettings> {
   return control<AppSettings>(info, "/settings", { method: "PUT", body: JSON.stringify(patch) }, fetchImpl);
+}
+export async function fetchConverter(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<ConverterStatus> {
+  return control<ConverterStatus>(info, "/converter", { method: "GET" }, fetchImpl);
+}
+export async function restartConverter(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<ConverterStatus> {
+  return control<ConverterStatus>(info, "/converter/restart", { method: "POST" }, fetchImpl);
 }
