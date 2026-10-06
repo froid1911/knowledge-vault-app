@@ -40,6 +40,22 @@ describe("control API", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "A vault needs a name." });
   });
+  it("rejects a wrong token of the right length too (constant-time compare, same answer)", async () => {
+    const base = await start();
+    expect((await fetch(`${base}/status`, { headers: { authorization: "Bearer secreT" } })).status).toBe(401);
+  });
+  it("answers a malformed JSON body with 400, not 500", async () => {
+    const base = await start();
+    const res = await fetch(`${base}/vaults`, { method: "POST", headers: { authorization: "Bearer secret", "content-type": "application/json" }, body: "{ not json" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/JSON/);
+  });
+  it("marks CORS answers as varying by origin", async () => {
+    const base = await start();
+    const res = await fetch(`${base}/status`, { headers: { authorization: "Bearer secret", origin: "http://127.0.0.1:4200" } });
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:4200");
+    expect(res.headers.get("vary")).toBe("Origin");
+  });
   it("answers CORS preflight for the host origin only", async () => {
     const base = await start();
     const ok = await fetch(`${base}/vaults`, { method: "OPTIONS", headers: { origin: "http://127.0.0.1:4200", "access-control-request-method": "POST" } });

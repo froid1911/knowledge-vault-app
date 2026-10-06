@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkStackVersions } from "./stack-versions.mjs";
+import { checkPgliteVersion, checkStackVersions } from "./stack-versions.mjs";
 
 describe("checkStackVersions", () => {
   it("accepts a workspace where every stack package is pinned to the expected version", () => {
@@ -27,5 +27,15 @@ describe("checkStackVersions", () => {
       "6.2.3-dev.44",
     );
     expect(out).toEqual(["sidecar: @powerhousedao/switchboard is 6.2.3-dev.43, expected 6.2.3-dev.44"]);
+  });
+});
+
+describe("checkPgliteVersion", () => {
+  it("accepts a sidecar pin equal to the Switchboard's own", () => {
+    expect(checkPgliteVersion("0.3.15", "0.3.15")).toBeNull();
+  });
+  it("names a mismatch and a Switchboard without the dependency", () => {
+    expect(checkPgliteVersion("0.3.16", "0.3.15")).toBe("sidecar: @electric-sql/pglite is 0.3.16, the Switchboard pins 0.3.15");
+    expect(checkPgliteVersion("0.3.15", undefined)).toMatch(/cannot verify/);
   });
 });
