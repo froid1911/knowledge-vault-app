@@ -20,3 +20,7 @@ spike/node_modules
 .env
 .env.*
 *.local
+
+# local dev engine store
+.dev-data/
+.superpowers/

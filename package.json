@@ -1,0 +1,23 @@
+{
+  "name": "desktop-knowledge-vault",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["host", "sidecar"],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:host": "bun run --cwd host dev",
+    "dev:sidecar": "bun run --cwd sidecar dev",
+    "dev:shell": "bunx @tauri-apps/cli dev",
+    "build:host": "bun run --cwd host build",
+    "build:sidecar": "bun run --cwd sidecar build",
+    "tsc": "bun run --cwd sidecar tsc && bun run --cwd host tsc",
+    "test": "vitest run",
+    "stack:check": "node scripts/check-stack-versions.mjs",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.1"
+  }
+}
