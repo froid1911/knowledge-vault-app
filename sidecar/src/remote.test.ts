@@ -15,9 +15,10 @@ describe("parseRemoteVaultInput", () => {
     expect(parseRemoteVaultInput(`${origin}/`, " c5893e1b-854b-49b1-b8aa-6b133ab87969 ")).toEqual({ origin, drive: "c5893e1b-854b-49b1-b8aa-6b133ab87969" });
     expect(parseRemoteVaultInput("http://127.0.0.1:4001/graphql/r", "x")).toEqual({ origin: "http://127.0.0.1:4001", drive: "x" });
   });
-  it("refuses what is not an http(s) URL", () => {
+  it("refuses what is not an http(s) URL, and a drive that cannot be decoded", () => {
     expect(() => parseRemoteVaultInput("switchboard.example.com")).toThrow(RemoteInputError);
     expect(() => parseRemoteVaultInput("ftp://x/y")).toThrow(RemoteInputError);
+    expect(() => parseRemoteVaultInput(`${origin}/graphql`, "%E0%A4%A")).toThrow(RemoteInputError);
   });
 });
 

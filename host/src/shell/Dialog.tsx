@@ -25,6 +25,9 @@ export function Dialog({ open, title, onClose, children, kind = "default" }: { o
         e.preventDefault();
         onClose();
       }}
+      onClose={() => {
+        if (open) onClose(); // the browser closed it itself (a second Escape); keep React's state in step
+      }}
     >
       {open && (
         <div className="kv-dialog-body">

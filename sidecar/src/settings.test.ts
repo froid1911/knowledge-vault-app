@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readModelKey, readSettings, writeSettings } from "./settings.js";
+import { readModelKey, readSettings, SettingsError, writeSettings } from "./settings.js";
 
 const dir = () => mkdtempSync(join(tmpdir(), "kv-settings-"));
 
@@ -27,6 +27,10 @@ describe("settings", () => {
     writeSettings(d, { models: { apiKey: "" } });
     expect(readModelKey(d)).toBeUndefined();
     expect(existsSync(join(d, "secrets", "llm.key"))).toBe(false);
+  });
+  it("rejects a model endpoint that is not an http(s) URL — a key will be sent there", () => {
+    expect(() => writeSettings(dir(), { models: { endpoint: "ftp://x" } })).toThrow(SettingsError);
+    expect(() => writeSettings(dir(), { models: { endpoint: "openrouter.ai/api/v1" } })).toThrow(SettingsError);
   });
   it("preserves keys in config.json it does not own", () => {
     const d = dir();

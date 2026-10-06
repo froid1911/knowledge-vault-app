@@ -2,7 +2,7 @@ import { RenownProvider, type GraphQLReactorClient } from "@powerhousedao/reacto
 import * as knowledgeNote from "@powerhousedao/knowledge-note";
 import * as workflow from "@powerhousedao/workflow";
 import type { DocumentModelLib } from "document-model";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useIdentity } from "./state/use-identity.js";
 import { fetchRemoteVaults, type RemoteVault } from "./api/remote.js";
 import { declareDesktopHost } from "./bootstrap.js";
@@ -39,10 +39,13 @@ export function App({ info, client }: { info: SidecarInfo; client: GraphQLReacto
   }, [inWorkspace, route.name, identity.refresh]);
   // The vault package reads who we are from the host declaration (gate, Access view, live feed).
   // A remote workspace declares its own origin and bearer while it is open.
+  const inRemote = route.name === "remote";
+  const inRemoteRef = useRef(inRemote);
+  inRemoteRef.current = inRemote;
   useEffect(() => {
-    if (route.name === "remote") return;
+    if (inRemoteRef.current) return; // the remote screen is the sole declarer while it is open
     declareDesktopHost(info.origin, { identity: hostIdentity });
-  }, [info.origin, hostIdentity, route.name]);
+  }, [info.origin, hostIdentity]);
 
   // Shortcuts only on the shell's own screens: a workspace app owns its keys.
   useEffect(() => {

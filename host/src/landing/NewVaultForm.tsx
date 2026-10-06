@@ -47,7 +47,6 @@ export function NewVaultForm({ firstRun, busy, error, onCreate, onCancel }: Prop
       </form>
       {reason && <p id="vault-name-reason" className="kv-reason">{reason}</p>}
       {error && <p role="alert" className="kv-error">{error}</p>}
-      {firstRun && <p className="kv-hint">Already have a vault on a server? Connecting remote vaults arrives in a later version.</p>}
     </section>
   );
 }

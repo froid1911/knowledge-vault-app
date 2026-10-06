@@ -16,11 +16,17 @@ import { WorkspaceScreen } from "./WorkspaceScreen.js";
 export function RemoteWorkspaceScreen({ info, vault, identity, onBack, onSettings }: { info: SidecarInfo; vault: RemoteVault; identity: HostIdentity | undefined; onBack: () => void; onSettings?: () => void }) {
   const tokenProvider = useMemo(() => createTokenProvider(info), [info]);
   const [client, setClient] = useState<ReturnType<typeof activate> | null>(null);
+  // Activation is keyed on the target only; the declaration follows the identity as well, so a
+  // sign-in landing after mount re-declares without ever flipping the client to the local engine.
   useEffect(() => {
-    declareDesktopHost(vault.switchboardUrl, { bearer: tokenProvider, identity });
     setClient(activate({ origin: vault.switchboardUrl, tokenProvider }));
     return () => {
       activate({ origin: info.origin });
+    };
+  }, [info.origin, vault.switchboardUrl, tokenProvider]);
+  useEffect(() => {
+    declareDesktopHost(vault.switchboardUrl, { bearer: tokenProvider, identity });
+    return () => {
       declareDesktopHost(info.origin, { identity });
     };
   }, [info.origin, vault.switchboardUrl, tokenProvider, identity]);

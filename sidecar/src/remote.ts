@@ -30,7 +30,12 @@ export function parseRemoteVaultInput(input: string, drive?: string): { origin: 
   if (segments[0] === "d" && segments[1]) fromPath = segments[1];
   else if (segments.length === 1 && !RESERVED.has(segments[0]!)) fromPath = segments[0];
   const named = drive?.trim() || fromPath;
-  return { origin: url.origin, ...(named ? { drive: decodeURIComponent(named) } : {}) };
+  if (!named) return { origin: url.origin };
+  try {
+    return { origin: url.origin, drive: decodeURIComponent(named) };
+  } catch {
+    throw new RemoteInputError("The drive id or slug contains characters that cannot be decoded.");
+  }
 }
 
 export function readRemoteVaults(dataDir: string): RemoteVault[] {
@@ -53,18 +58,22 @@ export async function checkRemoteVault(origin: string, drive: string, token: str
   if (res.status === 403) throw new RemoteAccessError("You are signed in, but this server has not granted you access to that vault. Ask its administrator for READ on the drive.");
   if (res.status === 404) throw new RemoteNotFoundError("No vault with that id or slug on this server — or none you may read.");
   if (!res.ok) throw new Error(`The server answered HTTP ${res.status}.`);
-  const info = (await res.json()) as { id: string; slug: string; name: string };
+  const info = (await res.json()) as { id?: unknown; slug?: unknown; name?: unknown };
+  if (typeof info.id !== "string" || !info.id) throw new Error("The server's answer did not name the drive.");
+  const id = info.id;
+  const slug = typeof info.slug === "string" && info.slug ? info.slug : id;
+  const name = typeof info.name === "string" && info.name ? info.name : slug;
   let access: RemoteAccess = "read";
   try {
     const q = await fetchImpl(`${origin}/graphql`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ query: `query($id: String!) { canExecuteOperation(documentIdOrSlug: $id, operationType: "ADD_FILE") }`, variables: { id: info.id } }),
+      body: JSON.stringify({ query: `query($id: String!) { canExecuteOperation(documentIdOrSlug: $id, operationType: "ADD_FILE") }`, variables: { id } }),
     });
     const json = (await q.json()) as { data?: { canExecuteOperation?: boolean } };
     if (json.data?.canExecuteOperation === true) access = "write";
   } catch {
     // read is the floor; the vault app's own gate speaks for anything more
   }
-  return { id: info.id, slug: info.slug, name: info.name, switchboardUrl: origin, access };
+  return { id, slug, name, switchboardUrl: origin, access };
 }

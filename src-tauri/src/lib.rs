@@ -27,8 +27,13 @@ pub fn run() {
                     if navigation::is_internal(url, host_port) {
                         return true;
                     }
-                    if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
-                        eprintln!("[shell] could not open {url} in the browser: {e}");
+                    match navigation::external_target(url) {
+                        Some(target) => {
+                            if let Err(e) = tauri_plugin_opener::open_url(target, None::<&str>) {
+                                eprintln!("[shell] could not open {target} in the browser: {e}");
+                            }
+                        }
+                        None => eprintln!("[shell] refused navigation to {url}"),
                     }
                     false
                 })

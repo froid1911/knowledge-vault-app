@@ -6,7 +6,9 @@
   --kv-measure: 1040px;
   --kv-gutter: 24px;
 }
-html { background: var(--bai-bg, Canvas); color: var(--bai-text, CanvasText); font-family: var(--kv-font-ui); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+html { background: var(--bai-bg, Canvas); color: var(--bai-text, CanvasText); -webkit-font-smoothing: antialiased; }
+/* The shell's own type; the mounted apps keep the browser default root size their rem scales assume. */
+.kv-landing, .kv-appbar, .kv-settings, .kv-engine, .kv-dialog { font-family: var(--kv-font-ui); font-size: 15px; line-height: 1.45; }
 body, #root { margin: 0; min-height: 100vh; }
 
 /* ---- the landing frame: header / main / status strip ---- */

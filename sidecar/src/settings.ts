@@ -10,6 +10,9 @@ export type ModelSettings = { endpoint: string; model: string; hasKey: boolean }
 export type AppSettings = { version: 1; models: ModelSettings };
 export type SettingsPatch = { models?: { endpoint?: string; model?: string; apiKey?: string | null } };
 
+/** A rejected value (the control API answers 400). */
+export class SettingsError extends Error {}
+
 const DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1";
 
 function configPath(dataDir: string): string {
@@ -64,7 +67,11 @@ export function writeSettings(dataDir: string, patch: SettingsPatch): AppSetting
   const current = readSettings(dataDir);
   const models = { endpoint: current.models.endpoint, model: current.models.model };
   if (patch.models) {
-    if (typeof patch.models.endpoint === "string") models.endpoint = patch.models.endpoint.trim() || DEFAULT_ENDPOINT;
+    if (typeof patch.models.endpoint === "string") {
+      const endpoint = patch.models.endpoint.trim() || DEFAULT_ENDPOINT;
+      if (!/^https?:\/\//.test(endpoint)) throw new SettingsError("The model endpoint must be an http(s) URL.");
+      models.endpoint = endpoint;
+    }
     if (typeof patch.models.model === "string") models.model = patch.models.model.trim();
     if (patch.models.apiKey !== undefined) {
       if (patch.models.apiKey === null || patch.models.apiKey === "") {

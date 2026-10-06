@@ -81,7 +81,7 @@ type Props = {
 export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdentity, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage }: Props) {
   const store = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const [vaults, setVaults] = useState<VaultSummary[] | null>(null);
-  const [remotes, setRemotes] = useState<RemoteVault[]>([]);
+  const [remotes, setRemotes] = useState<RemoteVault[] | null>(null);
   const [recents, setRecents] = useState<Recents>(() => readRecents(store));
   const [samples, setSamples] = useState<Record<string, VaultGraphSample | null>>({});
   const [layouts, setLayouts] = useState<Record<string, Map<string, XY> | null>>({});
@@ -113,7 +113,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
     api
       .fetchRemoteVaults(info)
       .then((v) => alive && setRemotes(v))
-      .catch(() => {});
+      .catch(() => alive && setRemotes([]));
     api
       .fetchVersion(info)
       .then((v) => alive && setVersion(v))
@@ -123,7 +123,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
     };
   }, [api, info]);
 
-  const all = useMemo<AnyVault[]>(() => [...(vaults ?? []).map((v) => ({ kind: "local" as const, ...v })), ...remotes], [vaults, remotes]);
+  const all = useMemo<AnyVault[]>(() => [...(vaults ?? []).map((v) => ({ kind: "local" as const, ...v })), ...(remotes ?? [])], [vaults, remotes]);
   const ordered = useMemo(() => sortByRecency(all, recents), [all, recents]);
 
   // Each vault's sample and saved layout are asked for once; results land whenever they arrive
@@ -234,7 +234,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
     setDialogError(null);
     try {
       await api.removeRemote(info, v.id);
-      setRemotes((prev) => prev.filter((x) => x.id !== v.id));
+      setRemotes((prev) => (prev ?? []).filter((x) => x.id !== v.id));
       setRemoving(null);
     } catch (e) {
       setDialogError(`Could not remove the vault: ${e instanceof Error ? e.message : String(e)}`);
@@ -244,8 +244,9 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
   }
 
   const ready = engine.state === "ready" && !!info;
-  const loading = ready && vaults === null && !error;
-  const firstRun = ready && vaults !== null && vaults.length === 0 && remotes.length === 0;
+  const loading = ready && (vaults === null || remotes === null) && !error;
+  // First run only once both lists are known: a person with only remote vaults must not see the create form flash.
+  const firstRun = ready && vaults !== null && remotes !== null && vaults.length === 0 && remotes.length === 0;
   const signedIn = identity?.authenticated === true;
 
   return (
@@ -270,11 +271,14 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
         {firstRun && (
           <>
             <NewVaultForm firstRun busy={busy} error={error} onCreate={(n) => void create(n)} />
-            {signedIn && (
-              <p className="kv-hint">
-                Already have a vault on a server? <button type="button" className="kv-link" onClick={() => setConnecting(true)}>Connect a remote vault</button>
-              </p>
-            )}
+            <p className="kv-hint">
+              Already have a vault on a server?{" "}
+              {signedIn ? (
+                <button type="button" className="kv-link" onClick={() => setConnecting(true)}>Connect a remote vault</button>
+              ) : (
+                <>Sign in (Settings › Identity), then connect it from here.</>
+              )}
+            </p>
           </>
         )}
         {ready && !firstRun && showForm && <NewVaultForm firstRun={false} busy={busy} error={error} onCreate={(n) => void create(n)} onCancel={closeForm} />}
@@ -337,7 +341,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
         <ConnectRemoteDialog
           api={{ check: (u, d) => api.checkRemote(info, u, d), add: (u, d) => api.addRemote(info, u, d) }}
           onAdded={(v) => {
-            setRemotes((prev) => [...prev.filter((x) => x.id !== v.id), v]);
+            setRemotes((prev) => [...(prev ?? []).filter((x) => x.id !== v.id), v]);
             setConnecting(false);
           }}
           onClose={() => setConnecting(false)}

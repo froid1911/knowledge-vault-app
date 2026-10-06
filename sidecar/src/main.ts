@@ -11,6 +11,7 @@ import { applyEnvironment, engineEnvironment } from "./environment.js";
 import { switchboardOptions } from "./options.js";
 import { readyLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
+import { singleFlight } from "./single-flight.js";
 import { readSettings, writeSettings } from "./settings.js";
 import { createVaultDrive, deleteVaultDrive, ensureWorkflowsDrive, listVaultDrives, renameVaultDrive } from "./vaults.js";
 
@@ -84,7 +85,8 @@ async function main(): Promise<void> {
     createVault: (name) => createVaultDrive(origin, name),
     renameVault: (id, name) => renameVaultDrive(origin, id, name),
     deleteVault: (id) => deleteVaultDrive(origin, id),
-    workflowsDrive: () => ensureWorkflowsDrive(origin),
+    // One create at a time: a React dev double-effect must not make two Workflows drives.
+    workflowsDrive: singleFlight(() => ensureWorkflowsDrive(origin)),
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
     auth: {

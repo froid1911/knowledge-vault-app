@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
-import type { AppSettings, SettingsPatch } from "./settings.js";
+import { SettingsError, type AppSettings, type SettingsPatch } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 
 export type StatusPayload = {
@@ -68,10 +68,8 @@ class BadRequestError extends Error {}
 function send(res: ServerResponse, status: number, body: unknown, origin?: string): void {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
-  if (origin) {
-    res.setHeader("access-control-allow-origin", origin);
-    res.setHeader("vary", "Origin");
-  }
+  res.setHeader("vary", "Origin"); // every answer depends on the origin, the refused ones included
+  if (origin) res.setHeader("access-control-allow-origin", origin);
   res.end(JSON.stringify(body));
 }
 
@@ -149,8 +147,11 @@ export function createControlServer(deps: ControlDeps) {
       if (req.method === "GET" && url.pathname === "/auth/token") {
         try {
           return send(res, 200, await deps.auth.token(), allowed);
-        } catch {
-          return send(res, 401, { error: "Not signed in." }, allowed);
+        } catch (error) {
+          // The SDK says "Not authenticated" for a missing credential; anything else is a real failure.
+          const message = error instanceof Error ? error.message : String(error);
+          if (/not authenticated/i.test(message)) return send(res, 401, { error: "Not signed in." }, allowed);
+          return send(res, 500, { error: `Could not mint a token: ${message}` }, allowed);
         }
       }
       // remote vaults (spec §5.5)
@@ -171,7 +172,7 @@ export function createControlServer(deps: ControlDeps) {
       }
       return send(res, 404, { error: "Not found" }, allowed);
     } catch (error) {
-      if (error instanceof BadRequestError) return send(res, 400, { error: error.message }, allowed);
+      if (error instanceof BadRequestError || error instanceof SettingsError) return send(res, 400, { error: error.message }, allowed);
       if (error instanceof NotAVaultError) return send(res, 404, { error: error.message }, allowed);
       if (error instanceof RemoteInputError) return send(res, 400, { error: error.message }, allowed);
       if (error instanceof RemoteAuthError) return send(res, 401, { error: error.message }, allowed);
