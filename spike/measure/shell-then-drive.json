@@ -1,0 +1,28 @@
+{
+ "tag": "then-drive",
+ "url": "http://localhost:3101/",
+ "blockDevServer": false,
+ "rewriteDevServer": true,
+ "sbCalls": [
+  "200 GET :4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690 "
+ ],
+ "gotoErr": null,
+ "title": "Knowledge Vault (spike)",
+ "finalUrl": "http://localhost:3101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690",
+ "found": {
+  "sidebarText": " SettingsCreate New DriveThis website uses cookies for analytic purposes only. When you are signed in, analytics events may be associated with your account identity. We collect information to improve the user experience and validate UI changes. You can still use the page without cookies. For more in"
+ },
+ "elapsedS": 105,
+ "heapMb": 78,
+ "hosts": {
+  "localhost:3101": 364,
+  "fonts.googleapis.com": 2,
+  "fonts.gstatic.com": 2,
+  "www.renown.id": 2,
+  "localhost:4101": 3,
+  "localhost:4001": 1
+ },
+ "consoleErrors": [],
+ "failed": [],
+ "bodyText": " SettingsThis website uses cookies for analytic purposes only. When you are signed in, analytics events may be associated with your account identity. We collect information to improve the user experience and validate UI changes. You can still use the page without cookies. For more information, please read our cookies policy.Analytics cookiesReject all cookiesAccept configured cookies "
+}

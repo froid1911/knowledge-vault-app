@@ -1,0 +1,43 @@
+{
+ "tag": "final2-blocked",
+ "url": "http://localhost:3101/",
+ "blockDevServer": true,
+ "sbCalls": [],
+ "gotoErr": null,
+ "title": "Knowledge Vault (spike)",
+ "finalUrl": "http://localhost:3101/",
+ "found": {},
+ "elapsedS": 106,
+ "heapMb": 124,
+ "hosts": {
+  "localhost:3101": 205,
+  "fonts.googleapis.com": 1,
+  "fonts.gstatic.com": 1,
+  "www.renown.id": 1,
+  "localhost:4101": 3
+ },
+ "consoleErrors": [
+  [
+   "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+   3
+  ],
+  [
+   "Default drive http://localhost:4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690 not reachable (attempt 1/3), retrying in 2000ms...",
+   1
+  ],
+  [
+   "Default drive http://localhost:4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690 not reachable (attempt 2/3), retrying in 4000ms...",
+   1
+  ],
+  [
+   "Failed to add default drive http://localhost:4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690 after 3 attempts: TypeError: Failed to fetch\n    at vr (http://l",
+   1
+  ]
+ ],
+ "failed": [
+  "net::ERR_CONNECTION_REFUSED http://localhost:4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690",
+  "net::ERR_CONNECTION_REFUSED http://localhost:4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690",
+  "net::ERR_CONNECTION_REFUSED http://localhost:4101/d/UpGJLko_HU_QZG3_G21I2gH7FJK5UkX3QKBE0TKH690"
+ ],
+ "bodyText": " SettingsCreate New DriveThis website uses cookies for analytic purposes only. When you are signed in, analytics events may be associated with your account identity. We collect information to improve the user experience and validate UI changes. You can still use the page without cookies. For more information, please read our cookies policy.Analytics cookiesReject all cookiesAccept configured cookies "
+}

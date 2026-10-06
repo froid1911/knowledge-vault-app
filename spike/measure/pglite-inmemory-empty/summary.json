@@ -1,0 +1,12 @@
+{
+ "variant": "pglite-inmemory-empty",
+ "ready_s": 5.4,
+ "index_ready_s": 0.0,
+ "rss_idle30_mb": 1038,
+ "rss_idle60_mb": 1038,
+ "rss_after_burst_mb": 1104,
+ "shutdown_s": 0.5,
+ "search_first": "n/a",
+ "search_next_s": [],
+ "rest_search": "n/a"
+}

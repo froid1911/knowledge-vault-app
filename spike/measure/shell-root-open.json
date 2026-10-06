@@ -1,0 +1,27 @@
+{
+ "tag": "root-open",
+ "url": "http://localhost:3101/",
+ "blockDevServer": false,
+ "gotoErr": null,
+ "title": "Knowledge Vault (spike)",
+ "finalUrl": "http://localhost:3101/",
+ "found": {},
+ "elapsedS": 106,
+ "heapMb": 113,
+ "hosts": {
+  "localhost:3101": 205,
+  "fonts.googleapis.com": 1,
+  "fonts.gstatic.com": 1,
+  "www.renown.id": 1,
+  "localhost:4101": 2,
+  "localhost:4001": 130
+ },
+ "consoleErrors": [
+  [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   130
+  ]
+ ],
+ "failed": [],
+ "bodyText": " SettingsCreate New DriveThis website uses cookies for analytic purposes only. When you are signed in, analytics events may be associated with your account identity. We collect information to improve the user experience and validate UI changes. You can still use the page without cookies. For more information, please read our cookies policy.Analytics cookiesReject all cookiesAccept configured cookies "
+}

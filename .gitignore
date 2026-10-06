@@ -1,0 +1,22 @@
+# dependencies & builds
+node_modules/
+dist/
+target/
+host/dist/
+sidecar/dist/
+sidecar/node_modules/
+
+# spike artefacts that are data, binaries or builds (scripts and notes are kept)
+spike/store-*/
+spike/connect-dist/
+spike/measure/*.log
+spike/measure/*.png
+spike/measure/*/switchboard.log
+spike/bin/vault-switchboard-bun*
+spike/bin/out/
+spike/node_modules
+
+# local state
+.env
+.env.*
+*.local

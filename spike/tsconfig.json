@@ -1,0 +1,67 @@
+{
+ "compilerOptions": {
+  "baseUrl": ".",
+  "paths": {
+   "better-sqlite3": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "fastify": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@fastify/cors": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@fastify/formbody": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@fastify/middie": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "mercurius": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@mercuriusjs/gateway": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "mysql": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "mysql2": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "oracledb": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "pg-query-stream": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "prettier-plugin-astro": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@prettier/plugin-hermes": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "prettier-plugin-marko": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@prettier/plugin-oxc": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@prettier/plugin-pug": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@shopify/prettier-plugin-liquid": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "sqlite3": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "tedious": [
+    "./bin/stubs/empty.cjs"
+   ],
+   "@zackad/prettier-plugin-twig": [
+    "./bin/stubs/empty.cjs"
+   ]
+  }
+ }
+}
