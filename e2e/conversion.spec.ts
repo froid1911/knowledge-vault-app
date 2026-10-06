@@ -47,8 +47,8 @@ test("conversion: ready out of the box, anonymous through the engine, switched l
 
   // A format the binding-less service cannot read names the remedy — never an empty source.
   const docx = await request.post(`${ENGINE}/convert?filename=report.docx`, { headers: octets, data: Buffer.from("PK\u0003\u0004 not a docx") });
-  expect(docx.status()).toBeGreaterThanOrEqual(400);
-  expect(JSON.stringify(await docx.json())).toContain("BINDING_REQUIRED");
+  expect(docx.status()).toBe(415);
+  expect(await docx.json()).toMatchObject({ code: "BINDING_REQUIRED", details: { binding: false } });
 
   // Off: the engine reports no converter at once — no restart.
   await page.getByLabel(/^Off/).click();

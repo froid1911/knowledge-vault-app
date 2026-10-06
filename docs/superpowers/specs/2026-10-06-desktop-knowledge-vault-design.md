@@ -128,7 +128,7 @@ Readiness: one stdout line `{"event":"ready","port":4201,"controlPort":4202}` af
 
 ### 4.7 Networking prerequisite
 
-The Switchboard's HTTP server calls `.listen(port)` without a host and therefore binds every interface; an *open* local vault would be reachable from the LAN. A small upstream change (a `host` option, §8) fixes this. Until it lands, the shell starts an open vault only after the user acknowledges the exposure once, and protected mode is unaffected (every call needs a bearer).
+The Switchboard's HTTP adapter accepts a bind host but nothing supplies one (`startServer` calls `listen(port, tls)`), so the engine would bind every interface — and in open mode every anonymous caller is the owner. The sidecar therefore installs a loopback-only `listen` shim for the engine's port before starting it (`sidecar/src/loopback.ts`, pinned by its test): an *open* local vault is reachable from this computer only. The upstream `host` option (§8) retires the shim; protected mode is unaffected either way.
 
 ## 5. Host web app
 
@@ -280,7 +280,7 @@ The vendored copy is kept honest by `scripts/sync-converter.mjs` (`--check` fail
 
 | To | Request | Interim |
 |---|---|---|
-| Powerhouse (`reactor-api`/`switchboard`) | a `host` option so the server can bind `127.0.0.1` | one-time acknowledgement for open mode; protected mode unaffected |
+| Powerhouse (`reactor-api`/`switchboard`) | a `host` option so the server can bind `127.0.0.1` | the sidecar's loopback-only `listen` shim for the engine's port (`loopback.ts`) |
 | Powerhouse (`switchboard`) | a plain data-dir (NodeFS) storage option instead of `AtomicNodeFs` for local use | the sidecar's loader shim |
 | `docling.rs` | a darwin build (omitted upstream only for lack of macOS runners) | Plan 6 builds the darwin binding on our Mac runners; until then macOS has the binding-less tier and *another server* |
 
@@ -331,7 +331,7 @@ The 1 GB snapshot holds ~660 MB of real data (keyframes 319 MB, operations 131 M
 - **`reactor-browser` behaviours outside Connect.** The setters are exported, but hooks such as `useSelectedNode`, modals (`showCreateDocumentModal`) and toasts may assume Connect's providers; the host supplies equivalents and the Phase 0 spike of the vault app inside the host settles the list.
 - **Renown session API.** The system-browser flow relies on Renown's session endpoints used by `ph login`; verified in Phase 1 against `www.renown.id`.
 - **Template export format.** Exporting the working workflow and connection as a replayable template needs the workflow model's import path; decided in Phase 2.
-- **Upstream `host` option.** Until it lands, open mode exposes the port on the LAN behind a one-time acknowledgement.
+- **Upstream `host` option.** Until it lands, the sidecar's `listen` shim binds the engine to loopback — the kind of patch an upstream option should retire.
 - **Installer size.** Dominated by `node_modules`; measured and trimmed in Phase 6.
 
 ## 14. Phases (input to the implementation plan)

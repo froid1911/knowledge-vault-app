@@ -6,6 +6,7 @@ import { readSidecarConfig, switchboardEnv } from "./config.js";
 import { createControlServer } from "./control.js";
 import { converterEnvironment, createConverterManager } from "./converter.js";
 import { createIdentity, DEFAULT_RENOWN_URL, defaultIdentityDeps } from "./identity.js";
+import { bindLoopbackOnly } from "./loopback.js";
 import { checkRemoteVault, parseRemoteVaultInput, readRemoteVaults, RemoteInputError, writeRemoteVaults } from "./remote.js";
 import { prepareDataDir } from "./data-dir.js";
 import { applyEnvironment, engineEnvironment } from "./environment.js";
@@ -67,6 +68,9 @@ async function main(): Promise<void> {
   for (const dir of PACKAGE_DIRS) {
     if (!existsSync(dir)) throw new Error(`package directory missing: ${dir} (run \`bun install\` in sidecar/)`);
   }
+  // Spec §4.7: never on the LAN. The Switchboard binds every interface and offers no host option;
+  // a listen() for its port that names no host is bound to loopback (see loopback.ts).
+  bindLoopbackOnly(cfg.port);
   const { startSwitchboard } = await import("@powerhousedao/switchboard/server");
   const options = switchboardOptions(cfg, configFile, PACKAGE_DIRS);
   const switchboard = await startSwitchboard(options);

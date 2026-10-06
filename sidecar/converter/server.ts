@@ -68,7 +68,6 @@ import {
   decideRoute,
   DOCLING_OCR_SECONDS_PER_PAGE,
   looksGarbled,
-  MIN_TOKENS,
   type OcrCapabilities,
 } from "./routing.mjs";
 import { conversionQuality, type ConversionQuality } from "./quality.mjs";
@@ -1271,45 +1270,83 @@ async function convertWithoutBinding(
       });
       return;
     }
-    hooks.onPhase?.("text-layer");
-    let layer: Awaited<ReturnType<typeof extractTextWithPdfjs>>;
-    try {
-      layer = await extractTextWithPdfjs(new Uint8Array(bytes));
-    } catch (error) {
-      refuse(415, {
-        error:
-          "pdf.js could not open this PDF; the converter (docling.rs) may — install the converter",
-        code: "NEEDS_CONVERTER",
-        detail: error instanceof Error ? error.message : String(error),
-      });
-      return;
-    }
-    if (job) job.pages = layer.pages;
-    const chars = layer.text.trim().length;
-    if (chars < MIN_TOKENS || looksGarbled(layer.text)) {
-      refuse(415, {
-        error:
-          chars === 0
-            ? "this PDF has no text layer — a scan. The converter's OCR would read it; install the converter"
-            : "this PDF's text layer is unreadable (encoded fonts). The converter would read it; install the converter",
-        code: "NEEDS_CONVERTER",
-        pages: layer.pages,
-        needsOcr: {
-          via: "docling-ocr",
-          estimateSeconds: Math.round(
-            layer.pages * DOCLING_OCR_SECONDS_PER_PAGE,
-          ),
-        },
-      });
-      return;
-    }
-    hooks.onPhase?.("structuring");
-    const chunkStart = Date.now();
-    const chunks = localChunks(layer.markdown);
+    await convertPdfTextLayer(filename, bytes, res, jobId, job, hooks, {
+      remedy: "install the converter",
+    });
+  } finally {
+    busy = null;
+  }
+}
+
+/** Below this many words per page a text layer reads as a scan with a stray header, not as the document. */
+const TEXT_LAYER_MIN_WORDS_PER_PAGE = 10;
+
+/**
+ * A PDF through the pdf.js text layer alone — the rung that works without the
+ * binding, and with the binding but without the models. Never an empty source:
+ * a missing or garbled layer, or one too thin to be the document (words per
+ * page under the floor — a scan with a header), is refused with
+ * NEEDS_CONVERTER and the remedy that would read it.
+ */
+async function convertPdfTextLayer(
+  filename: string,
+  bytes: Buffer,
+  res: ServerResponse,
+  jobId: string | null,
+  job: JobProgress | null,
+  hooks: ProgressHooks,
+  opts: { remedy: string; missing?: string[] },
+): Promise<void> {
+  const started = Date.now();
+  const binding = await bindingAvailable();
+  const refuse = (body: Record<string, unknown>): void => {
+    finishJob(jobId, job, "failed");
+    sendJson(res, 415, {
+      ...body,
+      code: "NEEDS_CONVERTER",
+      binding,
+      ...(opts.missing ? { missing: opts.missing } : {}),
+    });
+  };
+  hooks.onPhase?.("text-layer");
+  let layer: Awaited<ReturnType<typeof extractTextWithPdfjs>>;
+  try {
+    layer = await extractTextWithPdfjs(new Uint8Array(bytes));
+  } catch (error) {
+    refuse({
+      error: `pdf.js could not open this PDF; the converter would read it — ${opts.remedy}`,
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  if (job) job.pages = layer.pages;
+  const words = layer.text.split(/\s+/).filter(Boolean).length;
+  const perPage = words / Math.max(1, layer.pages);
+  if (words === 0 || perPage < TEXT_LAYER_MIN_WORDS_PER_PAGE || looksGarbled(layer.text)) {
+    refuse({
+      error:
+        words === 0
+          ? `this PDF has no text layer — a scan. The converter's OCR would read it; ${opts.remedy}`
+          : perPage < TEXT_LAYER_MIN_WORDS_PER_PAGE
+            ? `this PDF's text layer is too thin to be the document (${words} words over ${layer.pages} pages — a scan with a header). The converter's OCR would read it; ${opts.remedy}`
+            : `this PDF's text layer is unreadable (encoded fonts). The converter would read it; ${opts.remedy}`,
+      pages: layer.pages,
+      words,
+      needsOcr: {
+        via: "docling-ocr",
+        estimateSeconds: Math.round(layer.pages * DOCLING_OCR_SECONDS_PER_PAGE),
+      },
+    });
+    return;
+  }
+  hooks.onPhase?.("structuring");
+  const dir = await mkdtemp(join(tmpdir(), "vault-convert-"));
+  try {
+    const conversion = await conversionFromText(layer.markdown, dir, filename);
     finishJob(jobId, job, "done");
     sendJson(res, 200, {
-      markdown: layer.markdown,
-      chunks,
+      markdown: conversion.markdown,
+      chunks: conversion.chunks,
       format: "pdf",
       inputName: filename,
       pages: layer.pages,
@@ -1317,16 +1354,11 @@ async function convertWithoutBinding(
       ocr: null,
       needsOcr: null,
       ocrOffer: null,
-      timings: {
-        convertMs: 0,
-        chunkMs: Date.now() - chunkStart,
-        ocrMs: 0,
-        totalMs: Date.now() - started,
-      },
-      binding: false,
+      timings: { ...conversion.timings, ocrMs: 0, totalMs: Date.now() - started },
+      binding,
     });
   } finally {
-    busy = null;
+    await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -1403,10 +1435,21 @@ async function handleConvert(
   // on a fresh install, which is what lets the UI offer the 700 MB download
   // instead of failing.
   if (usePipeline && !dependencies.ready) {
+    if (format === "pdf") {
+      // The binding without the models: the text layer still reads a text PDF
+      // (the same rung as a fresh install); only a scan waits for the models.
+      await convertPdfTextLayer(filename, bytes, res, jobId, job, hooks, {
+        remedy: "install the PDF models",
+        missing: dependencies.missing,
+      });
+      busy = null;
+      return;
+    }
     busy = null;
     finishJob(jobId, job, "failed");
     sendJson(res, 415, {
       error: `cannot convert ${format} without the docling models`,
+      code: "MODELS_REQUIRED",
       missing: dependencies.missing,
       modelsDir: dependencies.home,
       hintForOperators: "npm run fetch-models — downloads ~700 MB, once",
