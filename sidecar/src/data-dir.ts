@@ -2,7 +2,7 @@ import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 /** Spec §3.3: what the engine owns under the app-data dir. */
-export const DATA_SUBDIRS = ["reactor", "read-model", "attachments", "secrets", "logs"] as const;
+export const DATA_SUBDIRS = ["reactor", "read-model", "attachments", "secrets", "logs", "converter"] as const;
 
 /**
  * Create the app-data layout. `secrets/` is 0700 (mode is applied even when the

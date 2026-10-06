@@ -45,10 +45,12 @@ export function readSidecarConfig(env: Env): SidecarConfig {
 }
 
 /** Spec §4.2: the Switchboard matrix. environment.ts decides what else the engine inherits — an OS/session allowlist, nothing more. */
-export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string): Record<string, string> {
+export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, openModeAddress = "local"): Record<string, string> {
   const origin = `http://127.0.0.1:${cfg.port}`;
   const flag = cfg.protected ? "true" : "false";
   return {
+    // Open mode (vault package §7.3): the anonymous caller is the engine's owner. Declared only when not protected.
+    ...(cfg.protected ? {} : { KNOWLEDGE_VAULT_OPEN_MODE: "1", KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS: openModeAddress }),
     PORT: String(cfg.port),
     PH_REACTOR_DATABASE_URL: join(cfg.dataDir, "reactor"),
     DATABASE_URL: join(cfg.dataDir, "read-model"),

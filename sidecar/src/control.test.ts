@@ -9,8 +9,11 @@ let close: (() => Promise<void>) | undefined;
 let deleted: string[] = [];
 let signedIn = false;
 let remotes: RemoteVault[] = [];
-let settings: AppSettings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false } };
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false } }; });
+let settings: AppSettings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } };
+let applied: AppSettings["conversion"][] = [];
+let restarted = 0;
+const converterStatus = { mode: "local" as const, state: "ready" as const, url: "http://127.0.0.1:5999", localUrl: "http://127.0.0.1:5999", pid: 4242, exitCode: null, restarts: 0, logPath: "/data/vault/logs/converter.log", health: { ok: true, binding: false }, error: null };
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
 
 async function start() {
   const server = createControlServer({
@@ -36,7 +39,9 @@ async function start() {
       remove: (id) => { remotes = remotes.filter((v) => v.id !== id); },
     },
     readSettings: () => settings,
-    writeSettings: (patch) => { settings = { ...settings, models: { ...settings.models, ...(patch.models?.endpoint ? { endpoint: patch.models.endpoint } : {}), ...(patch.models?.model !== undefined ? { model: patch.models.model } : {}), ...(patch.models?.apiKey !== undefined ? { hasKey: !!patch.models.apiKey } : {}) } }; return settings; },
+    writeSettings: (patch) => { settings = { ...settings, models: { ...settings.models, ...(patch.models?.endpoint ? { endpoint: patch.models.endpoint } : {}), ...(patch.models?.model !== undefined ? { model: patch.models.model } : {}), ...(patch.models?.apiKey !== undefined ? { hasKey: !!patch.models.apiKey } : {}) }, conversion: { ...settings.conversion, ...(patch.conversion ?? {}) } }; return settings; },
+    converter: { status: async () => converterStatus, restart: async () => { restarted += 1; return converterStatus; } },
+    applyConversion: async (c) => { applied.push(c); },
   });
   const port = await server.listen();
   close = server.close;
@@ -148,5 +153,24 @@ describe("control API", () => {
     expect(((await (await fetch(`${base}/remote-vaults`, { headers: h })).json()) as { vaults: RemoteVault[] }).vaults).toHaveLength(1);
     expect((await fetch(`${base}/remote-vaults/c589`, { method: "DELETE", headers: h })).status).toBe(200);
     expect(remotes).toEqual([]);
+  });
+
+  it("reports the converter and restarts it", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret", "content-type": "application/json" };
+    expect(await (await fetch(`${base}/converter`, { headers: h })).json()).toMatchObject({ mode: "local", state: "ready", url: "http://127.0.0.1:5999", health: { binding: false } });
+    expect((await fetch(`${base}/converter/restart`, { method: "POST", headers: h })).status).toBe(200);
+    expect(restarted).toBe(1);
+  });
+  it("applies a conversion setting right after saving it, and refuses a malformed one", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret", "content-type": "application/json" };
+    const res = await fetch(`${base}/settings`, { method: "PUT", headers: h, body: JSON.stringify({ conversion: { mode: "remote", remoteUrl: "http://10.0.0.5:5011" } }) });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as AppSettings).conversion).toEqual({ mode: "remote", remoteUrl: "http://10.0.0.5:5011" });
+    expect(applied).toEqual([{ mode: "remote", remoteUrl: "http://10.0.0.5:5011" }]);
+    expect((await fetch(`${base}/settings`, { method: "PUT", headers: h, body: JSON.stringify({ conversion: { mode: 7 } }) })).status).toBe(400);
+    expect((await fetch(`${base}/settings`, { method: "PUT", headers: h, body: JSON.stringify({ models: { model: "x" } }) })).status).toBe(200);
+    expect(applied).toHaveLength(1); // a models-only save does not touch the converter
   });
 });

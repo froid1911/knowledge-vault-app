@@ -52,6 +52,10 @@ describe("switchboardEnv", () => {
     for (const k of ["SENTRY_DSN", "ENABLE_TRACING", "PYROSCOPE_SERVER_ADDRESS", "CONVERT_SERVICE_URL"]) {
       expect(k in env).toBe(false);
     }
+    // Open mode is declared to the vault package, with the engine's identity as the anonymous caller's.
+    expect(env.KNOWLEDGE_VAULT_OPEN_MODE).toBe("1");
+    expect(env.KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("local");
+    expect(switchboardEnv(readSidecarConfig(base), "wfkey", "did:key:z6MkEngine").KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("did:key:z6MkEngine");
   });
   it("turns the four auth flags on with the admin address in protected mode", () => {
     const env = switchboardEnv(
@@ -63,6 +67,9 @@ describe("switchboardEnv", () => {
     expect(env.DEFAULT_PROTECTION).toBe("true");
     expect(env.DOCUMENT_PERMISSIONS_ENABLED).toBe("true");
     expect(env.ADMINS).toBe("0xabc");
+    // Protected mode never declares open mode — the guard then requires a real bearer.
+    expect("KNOWLEDGE_VAULT_OPEN_MODE" in env).toBe(false);
+    expect("KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS" in env).toBe(false);
   });
   it("refuses protected mode without an admin address", () => {
     expect(() => readSidecarConfig({ ...base, KV_PROTECTED: "1" })).toThrow(/KV_ADMIN_ADDRESS/);

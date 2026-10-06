@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSidecarConfig, switchboardEnv } from "./config.js";
 import { createControlServer } from "./control.js";
+import { converterEnvironment, createConverterManager } from "./converter.js";
 import { createIdentity, DEFAULT_RENOWN_URL, defaultIdentityDeps } from "./identity.js";
 import { checkRemoteVault, parseRemoteVaultInput, readRemoteVaults, RemoteInputError, writeRemoteVaults } from "./remote.js";
 import { prepareDataDir } from "./data-dir.js";
@@ -46,12 +47,21 @@ async function main(): Promise<void> {
   process.umask(0o077);
   prepareDataDir(cfg.dataDir);
   const workflowsKey = ensureSecret(join(cfg.dataDir, "secrets", "workflows.key"));
-  // Spec §4.2: the engine's environment is the matrix plus an OS/session allowlist. Nothing else is inherited.
-  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, workflowsKey)));
   const configFile = fileURLToPath(new URL("../powerhouse.config.json", import.meta.url));
   // cwd = the data dir, so anything written relative to cwd (the Renown SDK's
   // `./.ph`, the registry cache) lands in app-data, never beside the code.
   process.chdir(cfg.dataDir);
+  // The user's identity lives in the engine (spec §4.6). It is created before the
+  // engine so that open mode can attribute anonymous callers to the engine's own key.
+  const renownUrl = process.env.KV_RENOWN_URL || DEFAULT_RENOWN_URL;
+  const secretsDir = join(cfg.dataDir, "secrets");
+  const identity = createIdentity(await defaultIdentityDeps(secretsDir, renownUrl), { renownUrl, secretsDir });
+  const appDid = await identity.status().then(
+    (s) => s.appDid,
+    () => "local",
+  );
+  // Spec §4.2: the engine's environment is the matrix plus an OS/session allowlist. Nothing else is inherited.
+  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, workflowsKey, appDid)));
 
   // A missing package directory would degrade to an engine without the vault (the loader logs a miss and goes on); fail loudly instead.
   for (const dir of PACKAGE_DIRS) {
@@ -65,9 +75,24 @@ async function main(): Promise<void> {
   const origin = `http://127.0.0.1:${switchboard.port}`;
   await waitForHealth(`${origin}/health`, { timeoutMs: 60_000, intervalMs: 250 });
 
-  const renownUrl = process.env.KV_RENOWN_URL || DEFAULT_RENOWN_URL;
-  const secretsDir = join(cfg.dataDir, "secrets");
-  const identity = createIdentity(await defaultIdentityDeps(secretsDir, renownUrl), { renownUrl, secretsDir });
+  // Plan 4: the conversion helper. The engine is pointed at it through the vault
+  // package's runtime setter, published on a well-known global by the convert
+  // subgraph's setup — the same process, so no module identity to worry about.
+  const convertRegistry = (globalThis as Record<symbol, unknown>)[Symbol.for("@powerhousedao/knowledge-note/convert")] as
+    | { setServiceUrl: (url: string | null) => void }
+    | undefined;
+  if (!convertRegistry) console.warn("[sidecar] the vault package exposes no runtime conversion setter — conversion settings will not reach the engine");
+  const converter = createConverterManager({
+    dataDir: cfg.dataDir,
+    entry: fileURLToPath(new URL("../converter/server.ts", import.meta.url)),
+    nodePath: process.execPath,
+    env: converterEnvironment(process.env),
+    setEngineUrl: (url) => convertRegistry?.setServiceUrl(url),
+  });
+  void converter
+    .apply(readSettings(cfg.dataDir).conversion)
+    .catch((error: unknown) => console.error(`[converter] ${error instanceof Error ? error.message : String(error)}`));
+
   const control = createControlServer({
     token: cfg.controlToken,
     hostOrigin: cfg.hostOrigin,
@@ -89,6 +114,8 @@ async function main(): Promise<void> {
     workflowsDrive: singleFlight(() => ensureWorkflowsDrive(origin)),
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
+    converter: { status: () => converter.status(), restart: () => converter.restart() },
+    applyConversion: (settings) => converter.apply(settings),
     auth: {
       status: () => identity.status(),
       startLogin: () => identity.startLogin(),
@@ -128,7 +155,10 @@ async function main(): Promise<void> {
       if (String(chunk).trim() === "stop") process.kill(process.pid, "SIGINT");
     });
   }
-  process.on("SIGINT", () => void control.close());
+  process.on("SIGINT", () => {
+    void converter.stop();
+    void control.close();
+  });
 }
 
 main().catch((error) => {

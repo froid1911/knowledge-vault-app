@@ -2,7 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
-import { SettingsError, type AppSettings, type SettingsPatch } from "./settings.js";
+import type { ConverterStatus } from "./converter.js";
+import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 
 export type StatusPayload = {
@@ -27,6 +28,9 @@ export type ControlDeps = {
   workflowsDrive: () => Promise<DriveRef>;
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
+  /** Plan 4: the conversion helper; a saved conversion setting is applied right after it is written. */
+  converter: { status: () => Promise<ConverterStatus>; restart: () => Promise<ConverterStatus> };
+  applyConversion: (settings: ConversionSettings) => Promise<void>;
   auth: {
     status: () => Promise<IdentityStatus>;
     startLogin: () => Promise<{ url?: string; alreadyAuthenticated: boolean }>;
@@ -43,24 +47,42 @@ export type ControlDeps = {
 };
 
 function settingsPatch(body: Record<string, unknown>): SettingsPatch {
+  const patch: SettingsPatch = {};
   const models = body.models;
-  if (models === undefined) return {};
-  if (!models || typeof models !== "object" || Array.isArray(models)) throw new BadRequestError("`models` must be an object.");
-  const m = models as Record<string, unknown>;
-  const patch: NonNullable<SettingsPatch["models"]> = {};
-  if (m.endpoint !== undefined) {
-    if (typeof m.endpoint !== "string") throw new BadRequestError("`models.endpoint` must be a string.");
-    patch.endpoint = m.endpoint;
+  if (models !== undefined) {
+    if (!models || typeof models !== "object" || Array.isArray(models)) throw new BadRequestError("`models` must be an object.");
+    const m = models as Record<string, unknown>;
+    const mp: NonNullable<SettingsPatch["models"]> = {};
+    if (m.endpoint !== undefined) {
+      if (typeof m.endpoint !== "string") throw new BadRequestError("`models.endpoint` must be a string.");
+      mp.endpoint = m.endpoint;
+    }
+    if (m.model !== undefined) {
+      if (typeof m.model !== "string") throw new BadRequestError("`models.model` must be a string.");
+      mp.model = m.model;
+    }
+    if (m.apiKey !== undefined) {
+      if (m.apiKey !== null && typeof m.apiKey !== "string") throw new BadRequestError("`models.apiKey` must be a string or null.");
+      mp.apiKey = m.apiKey;
+    }
+    patch.models = mp;
   }
-  if (m.model !== undefined) {
-    if (typeof m.model !== "string") throw new BadRequestError("`models.model` must be a string.");
-    patch.model = m.model;
+  const conversion = body.conversion;
+  if (conversion !== undefined) {
+    if (!conversion || typeof conversion !== "object" || Array.isArray(conversion)) throw new BadRequestError("`conversion` must be an object.");
+    const c = conversion as Record<string, unknown>;
+    const cp: NonNullable<SettingsPatch["conversion"]> = {};
+    if (c.mode !== undefined) {
+      if (typeof c.mode !== "string") throw new BadRequestError("`conversion.mode` must be a string.");
+      cp.mode = c.mode as ConversionMode; // the value itself is checked where it is stored
+    }
+    if (c.remoteUrl !== undefined) {
+      if (typeof c.remoteUrl !== "string") throw new BadRequestError("`conversion.remoteUrl` must be a string.");
+      cp.remoteUrl = c.remoteUrl;
+    }
+    patch.conversion = cp;
   }
-  if (m.apiKey !== undefined) {
-    if (m.apiKey !== null && typeof m.apiKey !== "string") throw new BadRequestError("`models.apiKey` must be a string or null.");
-    patch.apiKey = m.apiKey;
-  }
-  return { models: patch };
+  return patch;
 }
 
 class BadRequestError extends Error {}
@@ -132,7 +154,15 @@ export function createControlServer(deps: ControlDeps) {
       }
       if (req.method === "GET" && url.pathname === "/workflows") return send(res, 200, { drive: await deps.workflowsDrive() }, allowed);
       if (req.method === "GET" && url.pathname === "/settings") return send(res, 200, deps.readSettings(), allowed);
-      if (req.method === "PUT" && url.pathname === "/settings") return send(res, 200, deps.writeSettings(settingsPatch(await readJson(req))), allowed);
+      if (req.method === "PUT" && url.pathname === "/settings") {
+        const patch = settingsPatch(await readJson(req));
+        const settings = deps.writeSettings(patch);
+        if (patch.conversion) await deps.applyConversion(settings.conversion);
+        return send(res, 200, settings, allowed);
+      }
+      // conversion helper (Plan 4)
+      if (req.method === "GET" && url.pathname === "/converter") return send(res, 200, await deps.converter.status(), allowed);
+      if (req.method === "POST" && url.pathname === "/converter/restart") return send(res, 200, await deps.converter.restart(), allowed);
       // identity (spec §4.6 /auth/*)
       if (req.method === "GET" && url.pathname === "/auth/status") return send(res, 200, await deps.auth.status(), allowed);
       if (req.method === "POST" && url.pathname === "/auth/login") return send(res, 202, await deps.auth.startLogin(), allowed);

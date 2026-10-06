@@ -7,8 +7,15 @@ import { join } from "node:path";
  * Other keys in config.json (the shell's `ui`, later `vaults`) are preserved.
  */
 export type ModelSettings = { endpoint: string; model: string; hasKey: boolean };
-export type AppSettings = { version: 1; models: ModelSettings };
-export type SettingsPatch = { models?: { endpoint?: string; model?: string; apiKey?: string | null } };
+/** Where documents convert (Plan 4): the helper on this computer, another server by URL, or nowhere. */
+export type ConversionMode = "local" | "remote" | "off";
+export type ConversionSettings = { mode: ConversionMode; remoteUrl: string };
+export const CONVERSION_MODES: readonly ConversionMode[] = ["local", "remote", "off"];
+export type AppSettings = { version: 1; models: ModelSettings; conversion: ConversionSettings };
+export type SettingsPatch = {
+  models?: { endpoint?: string; model?: string; apiKey?: string | null };
+  conversion?: { mode?: ConversionMode; remoteUrl?: string };
+};
 
 /** A rejected value (the control API answers 400). */
 export class SettingsError extends Error {}
@@ -52,12 +59,17 @@ export function readModelKey(dataDir: string): string | undefined {
 export function readSettings(dataDir: string): AppSettings {
   const raw = readRaw(dataDir);
   const models = (raw.models && typeof raw.models === "object" ? raw.models : {}) as Record<string, unknown>;
+  const conversion = (raw.conversion && typeof raw.conversion === "object" ? raw.conversion : {}) as Record<string, unknown>;
   return {
     version: 1,
     models: {
       endpoint: typeof models.endpoint === "string" && models.endpoint ? models.endpoint : DEFAULT_ENDPOINT,
       model: typeof models.model === "string" ? models.model : "",
       hasKey: readModelKey(dataDir) !== undefined,
+    },
+    conversion: {
+      mode: CONVERSION_MODES.includes(conversion.mode as ConversionMode) ? (conversion.mode as ConversionMode) : "local",
+      remoteUrl: typeof conversion.remoteUrl === "string" ? conversion.remoteUrl : "",
     },
   };
 }
@@ -83,8 +95,21 @@ export function writeSettings(dataDir: string, patch: SettingsPatch): AppSetting
       }
     }
   }
+  const conversion = { ...current.conversion };
+  if (patch.conversion) {
+    if (patch.conversion.mode !== undefined) {
+      if (!CONVERSION_MODES.includes(patch.conversion.mode)) throw new SettingsError("The conversion mode must be local, remote or off.");
+      conversion.mode = patch.conversion.mode;
+    }
+    if (typeof patch.conversion.remoteUrl === "string") {
+      const url = patch.conversion.remoteUrl.trim().replace(/\/+$/, "");
+      if (url && !/^https?:\/\//.test(url)) throw new SettingsError("The conversion server must be an http(s) URL.");
+      conversion.remoteUrl = url;
+    }
+    if (conversion.mode === "remote" && !conversion.remoteUrl) throw new SettingsError("Another server needs its URL.");
+  }
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1, models }, null, 2) + "\n");
+  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1, models, conversion }, null, 2) + "\n");
   return readSettings(dataDir);
 }
 
