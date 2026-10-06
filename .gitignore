@@ -21,8 +21,9 @@ spike/node_modules
 .env.*
 *.local
 
-# local dev engine store
+# local engine stores (dev loop, e2e)
 .dev-data/
+.e2e-data/
 .superpowers/
 
 # engine strays and test output

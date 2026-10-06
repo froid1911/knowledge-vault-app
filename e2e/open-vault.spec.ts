@@ -1,11 +1,17 @@
 import { expect, test } from "@playwright/test";
 
 test("create a vault on the landing and open the Knowledge Vault app against the local engine", async ({ page }) => {
+  // Spec §2: nothing leaves the machine. Every network request must target one of the three loopback ports.
+  const allowed = /^(?:https?|wss?):\/\/127\.0\.0\.1:420\d(?:[/?#]|$)/;
   const foreign: string[] = [];
-  page.on("request", (r) => { if (/localhost:4001|localhost:3001|127\.0\.0\.1:4001|127\.0\.0\.1:3001/.test(r.url())) foreign.push(r.url()); });
+  page.on("request", (r) => { const u = r.url(); if (/^(?:https?|wss?):/.test(u) && !allowed.test(u)) foreign.push(u); });
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Vaults" })).toBeVisible();
+  // Dark by default, with the vault app's own tokens (spec §5.7): --bai-bg of the Mocha theme is #1e1e2e.
+  expect(await page.evaluate(() => document.documentElement.dataset.baiTheme)).toBe("dark");
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe("rgb(30, 30, 46)");
+  await page.screenshot({ path: "test-results/landing-dark.png" });
   await page.getByLabel("Name").fill("E2E vault");
   await page.getByRole("button", { name: "Create vault" }).click();
 
@@ -16,5 +22,5 @@ test("create a vault on the landing and open the Knowledge Vault app against the
 
   await page.getByRole("button", { name: "← Vaults" }).click();
   await expect(page.getByRole("button", { name: /E2E vault/ })).toBeVisible();
-  expect(foreign, "no request may reach a developer's Vetra ports").toEqual([]);
+  expect(foreign, "only the three loopback ports may be contacted").toEqual([]);
 });
