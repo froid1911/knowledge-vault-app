@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSidecarConfig, switchboardEnv } from "./config.js";
 import { createControlServer } from "./control.js";
+import { createIdentity, DEFAULT_RENOWN_URL, defaultIdentityDeps } from "./identity.js";
+import { checkRemoteVault, parseRemoteVaultInput, readRemoteVaults, RemoteInputError, writeRemoteVaults } from "./remote.js";
 import { prepareDataDir } from "./data-dir.js";
 import { applyEnvironment, engineEnvironment } from "./environment.js";
 import { switchboardOptions } from "./options.js";
@@ -62,6 +64,9 @@ async function main(): Promise<void> {
   const origin = `http://127.0.0.1:${switchboard.port}`;
   await waitForHealth(`${origin}/health`, { timeoutMs: 60_000, intervalMs: 250 });
 
+  const renownUrl = process.env.KV_RENOWN_URL || DEFAULT_RENOWN_URL;
+  const secretsDir = join(cfg.dataDir, "secrets");
+  const identity = createIdentity(await defaultIdentityDeps(secretsDir, renownUrl), { renownUrl, secretsDir });
   const control = createControlServer({
     token: cfg.controlToken,
     hostOrigin: cfg.hostOrigin,
@@ -82,6 +87,30 @@ async function main(): Promise<void> {
     workflowsDrive: () => ensureWorkflowsDrive(origin),
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
+    auth: {
+      status: () => identity.status(),
+      startLogin: () => identity.startLogin(),
+      cancelLogin: () => identity.cancelLogin(),
+      logout: () => identity.logout(),
+      token: () => identity.token(),
+    },
+    remote: {
+      list: () => readRemoteVaults(cfg.dataDir),
+      check: async (url, drive) => {
+        const parsed = parseRemoteVaultInput(url, drive);
+        if (!parsed.drive) throw new RemoteInputError("Name the vault: a drive URL (…/d/<slug>) or the drive id or slug.");
+        return checkRemoteVault(parsed.origin, parsed.drive, (await identity.token()).token);
+      },
+      add: async (url, drive) => {
+        const parsed = parseRemoteVaultInput(url, drive);
+        if (!parsed.drive) throw new RemoteInputError("Name the vault: a drive URL (…/d/<slug>) or the drive id or slug.");
+        const checked = await checkRemoteVault(parsed.origin, parsed.drive, (await identity.token()).token);
+        const vault = { kind: "remote" as const, id: checked.id, slug: checked.slug, name: checked.name, switchboardUrl: checked.switchboardUrl, addedAt: new Date().toISOString() };
+        writeRemoteVaults(cfg.dataDir, [...readRemoteVaults(cfg.dataDir).filter((v) => v.id !== vault.id), vault]);
+        return vault;
+      },
+      remove: (id) => writeRemoteVaults(cfg.dataDir, readRemoteVaults(cfg.dataDir).filter((v) => v.id !== id)),
+    },
   });
   const controlPort = await control.listen(cfg.controlPort);
   process.stdout.write(readyLine(switchboard.port, controlPort) + "\n");

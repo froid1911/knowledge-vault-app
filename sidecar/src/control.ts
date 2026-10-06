@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AccessToken, IdentityStatus } from "./identity.js";
+import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import type { AppSettings, SettingsPatch } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 
@@ -25,6 +27,19 @@ export type ControlDeps = {
   workflowsDrive: () => Promise<DriveRef>;
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
+  auth: {
+    status: () => Promise<IdentityStatus>;
+    startLogin: () => Promise<{ url?: string; alreadyAuthenticated: boolean }>;
+    cancelLogin: () => void;
+    logout: () => Promise<void>;
+    token: () => Promise<AccessToken>;
+  };
+  remote: {
+    list: () => RemoteVault[];
+    check: (url: string, drive?: string) => Promise<RemoteCheck>;
+    add: (url: string, drive?: string) => Promise<RemoteVault>;
+    remove: (id: string) => void;
+  };
 };
 
 function settingsPatch(body: Record<string, unknown>): SettingsPatch {
@@ -120,10 +135,48 @@ export function createControlServer(deps: ControlDeps) {
       if (req.method === "GET" && url.pathname === "/workflows") return send(res, 200, { drive: await deps.workflowsDrive() }, allowed);
       if (req.method === "GET" && url.pathname === "/settings") return send(res, 200, deps.readSettings(), allowed);
       if (req.method === "PUT" && url.pathname === "/settings") return send(res, 200, deps.writeSettings(settingsPatch(await readJson(req))), allowed);
+      // identity (spec §4.6 /auth/*)
+      if (req.method === "GET" && url.pathname === "/auth/status") return send(res, 200, await deps.auth.status(), allowed);
+      if (req.method === "POST" && url.pathname === "/auth/login") return send(res, 202, await deps.auth.startLogin(), allowed);
+      if (req.method === "POST" && url.pathname === "/auth/cancel") {
+        deps.auth.cancelLogin();
+        return send(res, 200, { cancelled: true }, allowed);
+      }
+      if (req.method === "POST" && url.pathname === "/auth/logout") {
+        await deps.auth.logout();
+        return send(res, 200, { signedOut: true }, allowed);
+      }
+      if (req.method === "GET" && url.pathname === "/auth/token") {
+        try {
+          return send(res, 200, await deps.auth.token(), allowed);
+        } catch {
+          return send(res, 401, { error: "Not signed in." }, allowed);
+        }
+      }
+      // remote vaults (spec §5.5)
+      if (req.method === "GET" && url.pathname === "/remote-vaults") return send(res, 200, { vaults: deps.remote.list() }, allowed);
+      if (req.method === "POST" && (url.pathname === "/remote-vaults/check" || url.pathname === "/remote-vaults")) {
+        const body = await readJson(req);
+        const address = typeof body.url === "string" ? body.url : "";
+        const drive = typeof body.drive === "string" && body.drive.trim() ? body.drive : undefined;
+        if (!address) return send(res, 400, { error: "Enter the vault's address." }, allowed);
+        if (url.pathname.endsWith("/check")) return send(res, 200, { vault: await deps.remote.check(address, drive) }, allowed);
+        return send(res, 201, { vault: await deps.remote.add(address, drive) }, allowed);
+      }
+      const remote = url.pathname.match(/^\/remote-vaults\/([^/]+)$/);
+      if (remote && req.method === "DELETE") {
+        const id = decodeURIComponent(remote[1]!);
+        deps.remote.remove(id);
+        return send(res, 200, { removed: id }, allowed);
+      }
       return send(res, 404, { error: "Not found" }, allowed);
     } catch (error) {
       if (error instanceof BadRequestError) return send(res, 400, { error: error.message }, allowed);
       if (error instanceof NotAVaultError) return send(res, 404, { error: error.message }, allowed);
+      if (error instanceof RemoteInputError) return send(res, 400, { error: error.message }, allowed);
+      if (error instanceof RemoteAuthError) return send(res, 401, { error: error.message }, allowed);
+      if (error instanceof RemoteAccessError) return send(res, 403, { error: error.message }, allowed);
+      if (error instanceof RemoteNotFoundError) return send(res, 404, { error: error.message }, allowed);
       return send(res, 500, { error: error instanceof Error ? error.message : String(error) }, allowed);
     }
   });

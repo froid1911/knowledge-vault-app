@@ -1,7 +1,13 @@
 import type { SidecarInfo } from "./sidecar.js";
 export type VaultSummary = { id: string; slug: string; name: string; noteCount: number };
 
-async function control<T>(info: SidecarInfo, path: string, init: RequestInit, fetchImpl: typeof fetch): Promise<T> {
+export class ControlError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+  }
+}
+
+export async function control<T>(info: SidecarInfo, path: string, init: RequestInit, fetchImpl: typeof fetch): Promise<T> {
   const res = await fetchImpl(`${info.controlOrigin}${path}`, {
     ...init,
     headers: {
@@ -11,7 +17,7 @@ async function control<T>(info: SidecarInfo, path: string, init: RequestInit, fe
     },
   });
   const body = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? `The engine answered HTTP ${res.status}`);
+  if (!res.ok) throw new ControlError(body.error ?? `The engine answered HTTP ${res.status}`, res.status);
   return body;
 }
 export async function fetchVaults(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<VaultSummary[]> {

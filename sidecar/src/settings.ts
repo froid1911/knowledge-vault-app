@@ -19,6 +19,15 @@ function keyPath(dataDir: string): string {
   return join(dataDir, "secrets", "llm.key");
 }
 
+/** The whole config.json, for stores that own other keys (remote vaults); unknown keys survive every write. */
+export function readConfig(dataDir: string): Record<string, unknown> {
+  return readRaw(dataDir);
+}
+export function writeConfig(dataDir: string, raw: Record<string, unknown>): void {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1 }, null, 2) + "\n");
+}
+
 function readRaw(dataDir: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(readFileSync(configPath(dataDir), "utf8"));

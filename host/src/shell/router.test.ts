@@ -4,7 +4,7 @@ import { parseRoute, routeHash } from "./router.js";
 describe("routes", () => {
   it("parses every screen and round-trips through the hash", () => {
     const routes = [
-      { name: "vaults" }, { name: "vaults", newVault: true }, { name: "vault", id: "a b/c" }, { name: "workflows" }, { name: "settings", section: "models" },
+      { name: "vaults" }, { name: "vaults", newVault: true }, { name: "vault", id: "a b/c" }, { name: "remote", id: "c589" }, { name: "workflows" }, { name: "settings", section: "models" },
     ] as const;
     for (const r of routes) expect(parseRoute(routeHash(r))).toEqual(r);
   });

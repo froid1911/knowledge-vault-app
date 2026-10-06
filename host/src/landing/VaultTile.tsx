@@ -24,10 +24,12 @@ type Props = {
   onOpen: () => void;
   /** The ⋯ menu, rendered beside the tile's open area (a button cannot contain a button). */
   menu?: ReactNode;
+  /** A vault on another server: named under the title. */
+  remote?: { host: string };
 };
 
 /** One vault: the open area is a single button; the constellation is the vault's own graph. */
-export function VaultTile({ vault, lead, opened, sample, saved, onOpen, menu }: Props) {
+export function VaultTile({ vault, lead, opened, sample, saved, onOpen, menu, remote }: Props) {
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     if (sample === null) return;
@@ -44,6 +46,7 @@ export function VaultTile({ vault, lead, opened, sample, saved, onOpen, menu }: 
         </div>
         <div className="kv-tile-body">
           <h3 className="kv-tile-name">{vault.name}</h3>
+          {remote && <p className="kv-tile-remote">On {remote.host}</p>}
           <p className="kv-tile-meta">{tileSentence(vault, sample, opened)}</p>
           {lead && <span className="kv-tile-open">Open</span>}
         </div>

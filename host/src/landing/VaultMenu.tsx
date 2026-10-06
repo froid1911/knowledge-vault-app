@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { MoreIcon } from "../shell/icons.js";
 
 /** The ⋯ on a tile: Open · Rename · Delete. Closes on Escape, on a click elsewhere, and after a choice. */
-export function VaultMenu({ name, onOpen, onRename, onDelete }: { name: string; onOpen: () => void; onRename: () => void; onDelete: () => void }) {
+/** A local vault offers Rename and Delete; a remote one offers Remove (from this app only). */
+export function VaultMenu({ name, onOpen, onRename, onDelete, onRemove }: { name: string; onOpen: () => void; onRename?: () => void; onDelete?: () => void; onRemove?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -25,8 +26,9 @@ export function VaultMenu({ name, onOpen, onRename, onDelete }: { name: string; 
       {open && (
         <div role="menu" className="kv-menu-list" aria-label={`Actions for ${name}`}>
           <button type="button" role="menuitem" onClick={choose(onOpen)}>Open</button>
-          <button type="button" role="menuitem" onClick={choose(onRename)}>Rename</button>
-          <button type="button" role="menuitem" className="kv-menu-danger" onClick={choose(onDelete)}>Delete</button>
+          {onRename && <button type="button" role="menuitem" onClick={choose(onRename)}>Rename</button>}
+          {onDelete && <button type="button" role="menuitem" className="kv-menu-danger" onClick={choose(onDelete)}>Delete</button>}
+          {onRemove && <button type="button" role="menuitem" onClick={choose(onRemove)}>Remove from this app</button>}
         </div>
       )}
     </div>

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchVaultGraph, type VaultGraphSample } from "../api/graph.js";
+import { createTokenProvider, type IdentityStatus } from "../api/identity.js";
+import { addRemoteVault, authorizedFetch, checkRemoteVault, fetchRemoteVaults, removeRemoteVault, type RemoteCheck, type RemoteVault } from "../api/remote.js";
 import type { SidecarInfo } from "../sidecar.js";
 import { createVault, deleteVault, fetchStatus, fetchVaults, renameVault, type DriveRef, type VaultSummary } from "../vaults.js";
+import { ConnectRemoteDialog } from "../landing/ConnectRemoteDialog.js";
 import { DeleteVaultDialog } from "../landing/DeleteVaultDialog.js";
 import { NewVaultForm } from "../landing/NewVaultForm.js";
 import { readRecents, rememberOpened, sortByRecency, type Recents } from "../landing/recents.js";
@@ -10,6 +13,7 @@ import { loadSavedLayout, type XY } from "../landing/saved-layout.js";
 import { StatusStrip, type EngineState } from "../landing/StatusStrip.js";
 import { SkeletonTile, VaultTile } from "../landing/VaultTile.js";
 import { VaultMenu } from "../landing/VaultMenu.js";
+import { Dialog } from "../shell/Dialog.js";
 import { Header } from "../shell/Header.js";
 
 export type LandingApi = {
@@ -17,9 +21,15 @@ export type LandingApi = {
   createVault: (info: SidecarInfo, name: string) => Promise<VaultSummary>;
   renameVault: (info: SidecarInfo, id: string, name: string) => Promise<DriveRef>;
   deleteVault: (info: SidecarInfo, id: string) => Promise<void>;
-  fetchGraph: (origin: string, driveId: string, maxNodes: number) => Promise<VaultGraphSample>;
+  fetchRemoteVaults: (info: SidecarInfo) => Promise<RemoteVault[]>;
+  checkRemote: (info: SidecarInfo, url: string, drive: string | undefined) => Promise<RemoteCheck>;
+  addRemote: (info: SidecarInfo, url: string, drive: string | undefined) => Promise<RemoteVault>;
+  removeRemote: (info: SidecarInfo, id: string) => Promise<void>;
+  fetchGraph: (origin: string, driveId: string, maxNodes: number, fetchImpl?: typeof fetch) => Promise<VaultGraphSample>;
   fetchVersion: (info: SidecarInfo) => Promise<string>;
   loadLayout: (driveId: string) => Promise<Map<string, XY> | null>;
+  /** The user's bearer for remote servers; built per engine when not injected. */
+  tokenProvider?: (info: SidecarInfo) => () => Promise<string | undefined>;
 };
 
 export const realLandingApi: LandingApi = {
@@ -27,16 +37,27 @@ export const realLandingApi: LandingApi = {
   createVault,
   renameVault,
   deleteVault,
-  fetchGraph: (origin, driveId, maxNodes) => fetchVaultGraph(origin, driveId, { maxNodes }),
+  fetchRemoteVaults,
+  checkRemote: checkRemoteVault,
+  addRemote: addRemoteVault,
+  removeRemote: removeRemoteVault,
+  fetchGraph: (origin, driveId, maxNodes, fetchImpl) => fetchVaultGraph(origin, driveId, { maxNodes }, fetchImpl),
   fetchVersion: async (info) => (await fetchStatus(info)).appVersion,
   loadLayout: loadSavedLayout,
+  tokenProvider: (info) => createTokenProvider(info),
 };
+
+/** Local and remote vaults share the grid; recency orders both. */
+type AnyVault = ({ kind: "local" } & VaultSummary) | RemoteVault;
 
 type Props = {
   engine: EngineState;
   /** Present once the engine is ready; the landing lists and creates vaults only then. */
   info?: SidecarInfo;
+  identity?: IdentityStatus | null;
   onOpen?: (vault: VaultSummary) => void;
+  onOpenRemote?: (vault: RemoteVault) => void;
+  onIdentity?: () => void;
   onWorkflows?: () => void;
   onSettings?: () => void;
   /** Arrive with the create form open (Ctrl+N); `onNewVaultDone` clears that route flag once the form closes. */
@@ -51,19 +72,23 @@ type Props = {
  * recently opened one largest; on first run, the inline create form; the
  * engine's state in a strip at the bottom. Never a workspace.
  */
-export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage }: Props) {
+export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdentity, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage }: Props) {
   const store = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const [vaults, setVaults] = useState<VaultSummary[] | null>(null);
+  const [remotes, setRemotes] = useState<RemoteVault[]>([]);
   const [recents, setRecents] = useState<Recents>(() => readRecents(store));
   const [samples, setSamples] = useState<Record<string, VaultGraphSample | null>>({});
   const [layouts, setLayouts] = useState<Record<string, Map<string, XY> | null>>({});
   const [version, setVersion] = useState<string | undefined>();
   const [showForm, setShowForm] = useState(newVault);
+  const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<VaultSummary | null>(null);
   const [deleting, setDeleting] = useState<VaultSummary | null>(null);
+  const [removing, setRemoving] = useState<RemoteVault | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const tokenProvider = useMemo(() => (info && api.tokenProvider ? api.tokenProvider(info) : undefined), [api, info]);
 
   useEffect(() => setShowForm(newVault), [newVault]);
   const closeForm = () => {
@@ -79,6 +104,10 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
       .then((v) => alive && setVaults(v))
       .catch((e: Error) => alive && setError(`Could not load the vaults: ${e.message}`));
     api
+      .fetchRemoteVaults(info)
+      .then((v) => alive && setRemotes(v))
+      .catch(() => {});
+    api
       .fetchVersion(info)
       .then((v) => alive && setVersion(v))
       .catch(() => {});
@@ -87,15 +116,18 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
     };
   }, [api, info]);
 
-  const ordered = useMemo(() => (vaults ? sortByRecency(vaults, recents) : []), [vaults, recents]);
+  const all = useMemo<AnyVault[]>(() => [...(vaults ?? []).map((v) => ({ kind: "local" as const, ...v })), ...remotes], [vaults, remotes]);
+  const ordered = useMemo(() => sortByRecency(all, recents), [all, recents]);
 
   useEffect(() => {
     if (!info || !vaults) return;
     let alive = true;
     for (const [i, v] of ordered.entries()) {
       if (v.id in samples) continue;
+      const origin = v.kind === "remote" ? v.switchboardUrl : info.origin;
+      const fetchImpl = v.kind === "remote" && tokenProvider ? authorizedFetch(tokenProvider) : undefined;
       api
-        .fetchGraph(info.origin, v.id, i === 0 ? 48 : 28)
+        .fetchGraph(origin, v.id, i === 0 ? 48 : 28, fetchImpl)
         .then((s) => alive && setSamples((prev) => ({ ...prev, [v.id]: s })))
         .catch(() => alive && setSamples((prev) => ({ ...prev, [v.id]: null })));
       api
@@ -106,14 +138,15 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
     return () => {
       alive = false;
     };
-  }, [api, info, vaults, ordered, samples]);
+  }, [api, info, vaults, ordered, samples, tokenProvider]);
 
   const open = useCallback(
-    (v: VaultSummary) => {
+    (v: AnyVault) => {
       setRecents(rememberOpened(store, v.id));
-      onOpen?.(v);
+      if (v.kind === "remote") onOpenRemote?.(v);
+      else onOpen?.(v);
     },
-    [onOpen, store],
+    [onOpen, onOpenRemote, store],
   );
 
   async function create(name: string) {
@@ -124,14 +157,13 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
       const v = await api.createVault(info, name);
       setVaults((prev) => [...(prev ?? []), v]);
       closeForm();
-      open(v);
+      open({ kind: "local", ...v });
     } catch (e) {
       setError(`Could not create the vault: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
   }
-
   async function rename(v: VaultSummary, name: string) {
     if (!info) return;
     setBusy(true);
@@ -146,7 +178,6 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
       setBusy(false);
     }
   }
-
   async function remove(v: VaultSummary) {
     if (!info) return;
     setBusy(true);
@@ -161,23 +192,38 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
       setBusy(false);
     }
   }
+  async function forget(v: RemoteVault) {
+    if (!info) return;
+    setBusy(true);
+    setDialogError(null);
+    try {
+      await api.removeRemote(info, v.id);
+      setRemotes((prev) => prev.filter((x) => x.id !== v.id));
+      setRemoving(null);
+    } catch (e) {
+      setDialogError(`Could not remove the vault: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const ready = engine.state === "ready" && !!info;
   const loading = ready && vaults === null && !error;
-  const firstRun = ready && vaults !== null && vaults.length === 0;
+  const firstRun = ready && vaults !== null && vaults.length === 0 && remotes.length === 0;
+  const signedIn = identity?.authenticated === true;
 
   return (
     <div className="kv-landing" data-engine={engine.state}>
-      <Header onWorkflows={ready ? onWorkflows : undefined} onSettings={ready ? onSettings : undefined} />
+      <Header identity={ready ? identity : undefined} onIdentity={ready ? onIdentity : undefined} onWorkflows={ready ? onWorkflows : undefined} onSettings={ready ? onSettings : undefined} />
       <main className="kv-main">
         <div className="kv-vaults-row">
           <h2 id="vaults-heading">Vaults</h2>
-          {ready && vaults && vaults.length > 0 && (
+          {ready && !firstRun && vaults !== null && (
             <div className="kv-actions">
               <button type="button" className="kv-button" onClick={() => setShowForm(true)} disabled={showForm} title="New vault (Ctrl+N)">
                 New vault
               </button>
-              <button type="button" className="kv-button" disabled title="Coming in a later version">
+              <button type="button" className="kv-button" onClick={() => setConnecting(true)} disabled={!signedIn} title={signedIn ? "A vault on a server you have access to" : "Sign in first (Settings › Identity)"}>
                 Connect remote vault
               </button>
             </div>
@@ -185,7 +231,16 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
         </div>
         {!ready && <p className="kv-quiet">Your vaults appear here once the engine is ready.</p>}
         {error && !showForm && !firstRun && <p role="alert" className="kv-error">{error}</p>}
-        {firstRun && <NewVaultForm firstRun busy={busy} error={error} onCreate={(n) => void create(n)} />}
+        {firstRun && (
+          <>
+            <NewVaultForm firstRun busy={busy} error={error} onCreate={(n) => void create(n)} />
+            {signedIn && (
+              <p className="kv-hint">
+                Already have a vault on a server? <button type="button" className="kv-link" onClick={() => setConnecting(true)}>Connect a remote vault</button>
+              </p>
+            )}
+          </>
+        )}
         {ready && !firstRun && showForm && <NewVaultForm firstRun={false} busy={busy} error={error} onCreate={(n) => void create(n)} onCancel={closeForm} />}
         {loading && (
           <div className="kv-grid" role="status" aria-label="Loading vaults">
@@ -198,15 +253,28 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
           <ul className="kv-grid" aria-labelledby="vaults-heading">
             {ordered.map((v, i) => (
               <li key={v.id} className="kv-grid-cell">
-                <VaultTile
-                  vault={v}
-                  lead={i === 0}
-                  opened={recents[v.id]}
-                  sample={samples[v.id] ?? null}
-                  saved={layouts[v.id] ?? null}
-                  onOpen={() => open(v)}
-                  menu={<VaultMenu name={v.name} onOpen={() => open(v)} onRename={() => { setDialogError(null); setRenaming(v); }} onDelete={() => { setDialogError(null); setDeleting(v); }} />}
-                />
+                {v.kind === "remote" ? (
+                  <VaultTile
+                    vault={{ id: v.id, slug: v.slug, name: v.name, noteCount: samples[v.id]?.noteCount ?? 0 }}
+                    remote={{ host: new URL(v.switchboardUrl).host }}
+                    lead={i === 0}
+                    opened={recents[v.id]}
+                    sample={samples[v.id] ?? null}
+                    saved={layouts[v.id] ?? null}
+                    onOpen={() => open(v)}
+                    menu={<VaultMenu name={v.name} onOpen={() => open(v)} onRemove={() => { setDialogError(null); setRemoving(v); }} />}
+                  />
+                ) : (
+                  <VaultTile
+                    vault={v}
+                    lead={i === 0}
+                    opened={recents[v.id]}
+                    sample={samples[v.id] ?? null}
+                    saved={layouts[v.id] ?? null}
+                    onOpen={() => open(v)}
+                    menu={<VaultMenu name={v.name} onOpen={() => open(v)} onRename={() => { setDialogError(null); setRenaming(v); }} onDelete={() => { setDialogError(null); setDeleting(v); }} />}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -215,6 +283,28 @@ export function Landing({ engine, info, onOpen, onWorkflows, onSettings, newVaul
       <StatusStrip engine={engine} version={version} />
       {renaming && <RenameVaultDialog name={renaming.name} busy={busy} error={dialogError} onSave={(n) => void rename(renaming, n)} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteVaultDialog name={deleting.name} noteCount={samples[deleting.id]?.noteCount ?? deleting.noteCount} busy={busy} error={dialogError} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+      {removing && (
+        <Dialog open title={`Remove “${removing.name}” from this app?`} onClose={() => setRemoving(null)}>
+          <div className="kv-dialog-form">
+            <p>The vault stays on {new URL(removing.switchboardUrl).host} exactly as it is; only this app forgets it.</p>
+            {dialogError && <p role="alert" className="kv-error">{dialogError}</p>}
+            <div className="kv-dialog-actions">
+              <button type="button" className="kv-button" onClick={() => setRemoving(null)} disabled={busy}>Cancel</button>
+              <button type="button" className="kv-button kv-button-primary" onClick={() => void forget(removing)} disabled={busy}>{busy ? "Removing…" : "Remove"}</button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+      {connecting && info && (
+        <ConnectRemoteDialog
+          api={{ check: (u, d) => api.checkRemote(info, u, d), add: (u, d) => api.addRemote(info, u, d) }}
+          onAdded={(v) => {
+            setRemotes((prev) => [...prev.filter((x) => x.id !== v.id), v]);
+            setConnecting(false);
+          }}
+          onClose={() => setConnecting(false)}
+        />
+      )}
     </div>
   );
 }

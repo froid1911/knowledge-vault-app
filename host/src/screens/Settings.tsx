@@ -6,6 +6,7 @@ import { AboutSection } from "../settings/About.js";
 import { AppearanceSection } from "../settings/Appearance.js";
 import { DiagnosticsSection } from "../settings/Diagnostics.js";
 import { IdentitySection } from "../settings/Identity.js";
+import type { IdentityApi } from "../state/use-identity.js";
 import { ModelsSection } from "../settings/Models.js";
 import { VaultsSection } from "../settings/Vaults.js";
 import { WorkflowsSection } from "../settings/Workflows.js";
@@ -37,10 +38,11 @@ type Props = {
   onBack: () => void;
   onOpenWorkflows: () => void;
   api?: SettingsApi;
+  identityApi?: IdentityApi;
 };
 
 /** Settings as a full page: the sections list is where a sidebar belongs — here the sections are peers. */
-export function Settings({ info, section, onSection, onBack, onOpenWorkflows, api = realSettingsApi }: Props) {
+export function Settings({ info, section, onSection, onBack, onOpenWorkflows, api = realSettingsApi, identityApi }: Props) {
   return (
     <div className="kv-vault-screen">
       <AppBar title="Settings" onBack={onBack} />
@@ -60,7 +62,7 @@ export function Settings({ info, section, onSection, onBack, onOpenWorkflows, ap
           {section === "workflows" && <WorkflowsSection onOpen={onOpenWorkflows} />}
           {section === "diagnostics" && <DiagnosticsSection info={info} api={api} />}
           {section === "about" && <AboutSection info={info} api={api} />}
-          {section === "identity" && <IdentitySection />}
+          {section === "identity" && <IdentitySection info={info} api={identityApi} />}
         </section>
       </div>
     </div>

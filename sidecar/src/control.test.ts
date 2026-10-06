@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createControlServer } from "./control.js";
 import type { AppSettings } from "./settings.js";
+import { RemoteAuthError, RemoteInputError, type RemoteVault } from "./remote.js";
 import { NotAVaultError, type VaultSummary } from "./vaults.js";
 
 const vaults: VaultSummary[] = [{ id: "v1", slug: "research", name: "Research", noteCount: 2 }];
 let close: (() => Promise<void>) | undefined;
 let deleted: string[] = [];
+let signedIn = false;
+let remotes: RemoteVault[] = [];
 let settings: AppSettings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false } };
-afterEach(async () => { await close?.(); close = undefined; deleted = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false } }; });
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false } }; });
 
 async function start() {
   const server = createControlServer({
@@ -19,6 +22,19 @@ async function start() {
     renameVault: async (id, name) => { if (id !== "v1") throw new NotAVaultError("That drive is not a vault."); return { id, slug: "research", name }; },
     deleteVault: async (id) => { if (id !== "v1") throw new NotAVaultError("That drive is not a vault."); deleted.push(id); },
     workflowsDrive: async () => ({ id: "w1", slug: "workflows", name: "Workflows" }),
+    auth: {
+      status: async () => ({ authenticated: signedIn, address: signedIn ? "0xabc" : undefined, appDid: "did:key:z6Mk-app", renownUrl: "https://www.renown.id", pending: null }),
+      startLogin: async () => (signedIn ? { alreadyAuthenticated: true } : { url: "https://www.renown.id/#/login?session=abc", alreadyAuthenticated: false }),
+      cancelLogin: () => {},
+      logout: async () => { signedIn = false; },
+      token: async () => { if (!signedIn) throw new Error("Not authenticated"); return { token: "jwt", expiresAt: "2026-10-06T13:00:00.000Z", address: "0xabc", did: "did:key:z6Mk-app" }; },
+    },
+    remote: {
+      list: () => remotes,
+      check: async (url, drive) => { if (!url.startsWith("http")) throw new RemoteInputError("Enter the vault's address as a URL."); if (!signedIn) throw new RemoteAuthError("Sign in first."); return { id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, access: "write" }; },
+      add: async (url, drive) => { const v: RemoteVault = { kind: "remote", id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, addedAt: "2026-10-06T12:00:00.000Z" }; remotes = [v]; return v; },
+      remove: (id) => { remotes = remotes.filter((v) => v.id !== id); },
+    },
     readSettings: () => settings,
     writeSettings: (patch) => { settings = { ...settings, models: { ...settings.models, ...(patch.models?.endpoint ? { endpoint: patch.models.endpoint } : {}), ...(patch.models?.model !== undefined ? { model: patch.models.model } : {}), ...(patch.models?.apiKey !== undefined ? { hasKey: !!patch.models.apiKey } : {}) } }; return settings; },
   });
@@ -104,5 +120,33 @@ describe("control API", () => {
     const base = await start();
     const res = await fetch(`${base}/vaults/v1`, { method: "OPTIONS", headers: { origin: "http://127.0.0.1:4200", "access-control-request-method": "DELETE" } });
     expect(res.headers.get("access-control-allow-methods")).toBe("GET,POST,PATCH,PUT,DELETE,OPTIONS");
+  });
+
+  it("drives the sign-in flow: status, login URL, a token only once signed in, sign-out", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret", "content-type": "application/json" };
+    expect(await (await fetch(`${base}/auth/status`, { headers: h })).json()).toMatchObject({ authenticated: false, pending: null });
+    const login = await fetch(`${base}/auth/login`, { method: "POST", headers: h });
+    expect(login.status).toBe(202);
+    expect(await login.json()).toEqual({ url: "https://www.renown.id/#/login?session=abc", alreadyAuthenticated: false });
+    expect((await fetch(`${base}/auth/token`, { headers: h })).status).toBe(401);
+    signedIn = true;
+    expect(await (await fetch(`${base}/auth/token`, { headers: h })).json()).toMatchObject({ token: "jwt", address: "0xabc" });
+    expect((await fetch(`${base}/auth/logout`, { method: "POST", headers: h })).status).toBe(200);
+    expect(signedIn).toBe(false);
+  });
+  it("checks, adds, lists and removes remote vaults, mapping refusals to their status", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret", "content-type": "application/json" };
+    expect((await fetch(`${base}/remote-vaults/check`, { method: "POST", headers: h, body: JSON.stringify({ url: "not a url" }) })).status).toBe(400);
+    expect((await fetch(`${base}/remote-vaults/check`, { method: "POST", headers: h, body: JSON.stringify({ url: "https://s.example.com/graphql", drive: "pk" }) })).status).toBe(401);
+    signedIn = true;
+    const checked = await fetch(`${base}/remote-vaults/check`, { method: "POST", headers: h, body: JSON.stringify({ url: "https://s.example.com/graphql", drive: "pk" }) });
+    expect(await checked.json()).toEqual({ vault: { id: "c589", slug: "pk", name: "powerhouse-knowledge", switchboardUrl: "https://s.example.com", access: "write" } });
+    const added = await fetch(`${base}/remote-vaults`, { method: "POST", headers: h, body: JSON.stringify({ url: "https://s.example.com/d/pk" }) });
+    expect(added.status).toBe(201);
+    expect(((await (await fetch(`${base}/remote-vaults`, { headers: h })).json()) as { vaults: RemoteVault[] }).vaults).toHaveLength(1);
+    expect((await fetch(`${base}/remote-vaults/c589`, { method: "DELETE", headers: h })).status).toBe(200);
+    expect(remotes).toEqual([]);
   });
 });

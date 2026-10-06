@@ -9,6 +9,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export type Route =
   | { name: "vaults"; newVault?: boolean }
   | { name: "vault"; id: string }
+  | { name: "remote"; id: string }
   | { name: "workflows" }
   | { name: "settings"; section: SettingsSection };
 
@@ -18,6 +19,7 @@ export function parseRoute(hash: string): Route {
   const segments = pathPart.split("/").filter(Boolean);
   if (segments.length === 0) return new URLSearchParams(query).get("new") === "1" ? { name: "vaults", newVault: true } : { name: "vaults" };
   if (segments[0] === "vault" && segments[1]) return { name: "vault", id: decodeURIComponent(segments[1]) };
+  if (segments[0] === "remote" && segments[1]) return { name: "remote", id: decodeURIComponent(segments[1]) };
   if (segments[0] === "workflows") return { name: "workflows" };
   if (segments[0] === "settings") {
     const section = segments[1];
@@ -32,6 +34,8 @@ export function routeHash(route: Route): string {
       return route.newVault ? "#/?new=1" : "#/";
     case "vault":
       return `#/vault/${encodeURIComponent(route.id)}`;
+    case "remote":
+      return `#/remote/${encodeURIComponent(route.id)}`;
     case "workflows":
       return "#/workflows";
     case "settings":
