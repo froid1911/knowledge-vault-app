@@ -1,8 +1,9 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, symlinkSync } from "node:fs";
 import { register } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSidecarConfig, switchboardEnv } from "./config.js";
+import { switchboardOptions } from "./options.js";
 import { createControlServer } from "./control.js";
 import { readyLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
@@ -20,24 +21,25 @@ async function main(): Promise<void> {
   }
   const workflowsKey = ensureSecret(join(cfg.dataDir, "secrets", "workflows.key"));
   Object.assign(process.env, switchboardEnv(cfg, workflowsKey));
-  // cwd stays sidecar/ (the shell and the dev loop spawn us there): package
-  // names resolve through the workspace's node_modules, and the config file is
-  // named explicitly so nothing depends on what else cwd contains.
+  // The config file is named explicitly, and the engine runs with cwd = the data
+  // dir so anything it writes relative to cwd (the Renown SDK's `./.ph/…`) lands
+  // in app-data, never beside the code. Package names still resolve: the
+  // Switchboard imports them relative to its own module, not to cwd.
   const configFile = fileURLToPath(new URL("../powerhouse.config.json", import.meta.url));
+  // The Switchboard's package loader resolves names from cwd, and bun keeps the
+  // sidecar's dependencies in sidecar/node_modules — so the data dir gets a
+  // link to them before it becomes cwd.
+  const modulesLink = join(cfg.dataDir, "node_modules");
+  if (!existsSync(modulesLink)) {
+    symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), modulesLink, "junction");
+  }
+  process.chdir(cfg.dataDir);
 
   const { startSwitchboard } = await import("@powerhousedao/switchboard/server");
-  const switchboard = await startSwitchboard({
-    configFile,
-    port: cfg.port,
-    strictPort: true,
-    dev: false,
-    mcp: true,
-    workflows: { enabled: true },
-    packages: ["@powerhousedao/knowledge-note", "@powerhousedao/workflow"],
-    disableLocalPackages: true,
-    remoteDrives: [],
-    fatalErrorShutdown: true,
-  });
+  const options = switchboardOptions(cfg, configFile);
+  const switchboard = await startSwitchboard(options);
+  // The SDK writes the keypair world-readable; it is a secret.
+  if (existsSync(options.identity.keypairPath)) chmodSync(options.identity.keypairPath, 0o600);
   const origin = `http://127.0.0.1:${switchboard.port}`;
   await waitForHealth(`${origin}/health`, { timeoutMs: 60_000, intervalMs: 250 });
 

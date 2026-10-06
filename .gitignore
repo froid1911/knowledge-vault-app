@@ -24,3 +24,8 @@ spike/node_modules
 # local dev engine store
 .dev-data/
 .superpowers/
+
+# engine strays and test output
+sidecar/.ph/
+test-results/
+playwright-report/
