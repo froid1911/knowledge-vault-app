@@ -14,6 +14,8 @@ function api(over: Partial<LandingApi> = {}): LandingApi {
   return {
     fetchVaults: vi.fn(async () => []),
     createVault: vi.fn(async (_i, name: string) => ({ id: "v-new", slug: "s", name, noteCount: 0 })),
+    renameVault: vi.fn(async (_i, id: string, name: string) => ({ id, slug: "s", name })),
+    deleteVault: vi.fn(async () => {}),
     fetchGraph: vi.fn(async () => sample),
     fetchVersion: vi.fn(async () => "0.1.0"),
     loadLayout: vi.fn(async () => null),
@@ -49,8 +51,8 @@ describe("Landing", () => {
     const a = api({ fetchVaults: vi.fn(async () => [{ id: "v1", slug: "a", name: "Alpha", noteCount: 3 }, { id: "v2", slug: "b", name: "Team wiki", noteCount: 300 }]) });
     render(<Landing engine={{ state: "ready" }} info={info} api={a} storage={storage} />);
     const lead = await screen.findByRole("button", { name: "Open Team wiki" });
-    expect(lead.getAttribute("data-lead")).toBe("true");
-    expect(screen.getByRole("button", { name: "Open Alpha" }).getAttribute("data-lead")).toBe("false");
+    expect(lead.closest(".kv-tile")!.getAttribute("data-lead")).toBe("true"); // the tile carries the lead flag; the button is its open area
+    expect(screen.getByRole("button", { name: "Open Alpha" }).closest(".kv-tile")!.getAttribute("data-lead")).toBe("false");
     expect(await screen.findAllByText(/371 notes and 1,208 links, /)).toHaveLength(2);
     expect(screen.getByText(/1,208 links, opened /)).toBeTruthy(); // Team wiki was opened
     expect(screen.getByText(/1,208 links, not opened yet\./)).toBeTruthy(); // Alpha never was
@@ -83,5 +85,27 @@ describe("Landing", () => {
     expect(screen.getByText("The app could not reach the engine")).toBeTruthy();
     expect(screen.getByText(/no ipc/)).toBeTruthy();
     expect(a.fetchVaults).not.toHaveBeenCalled();
+  });
+
+  it("renames a vault from its ⋯ menu and deletes one only after its name is typed", async () => {
+    const a = api({ fetchVaults: vi.fn(async () => [{ id: "v1", slug: "a", name: "Alpha", noteCount: 3 }, { id: "v2", slug: "b", name: "Beta", noteCount: 0 }]) });
+    render(<Landing engine={{ state: "ready" }} info={info} api={a} storage={memoryStorage()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for Alpha" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const nameInput = screen.getByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "Alpha prime" } });
+    fireEvent.submit(nameInput.closest("form")!);
+    await waitFor(() => expect(a.renameVault).toHaveBeenCalledWith(info, "v1", "Alpha prime"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open Alpha prime" })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Beta" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const confirm = screen.getByLabelText("Type the vault’s name to confirm");
+    const del = screen.getByRole("button", { name: "Delete vault" }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+    fireEvent.change(confirm, { target: { value: "Beta" } });
+    fireEvent.submit(confirm.closest("form")!);
+    await waitFor(() => expect(a.deleteVault).toHaveBeenCalledWith(info, "v2"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Open Beta" })).toBeNull());
   });
 });

@@ -9,12 +9,20 @@ import {
 } from "@powerhousedao/reactor-browser";
 import { Suspense, useEffect, useState } from "react";
 import { DocumentEditorContainer } from "../components/DocumentEditorContainer.js";
+import { AppBar } from "../shell/AppBar.js";
 
 type Drives = NonNullable<Parameters<typeof setDrives>[0]>;
 type DriveDoc = Drives[number];
 
-export function VaultScreen(props: { client: GraphQLReactorClient; driveId: string; title: string; onBack: () => void }) {
+export type WorkspaceApp = "knowledge-vault" | "workflow-studio";
+
+/**
+ * Full view for one drive: a vault (the Knowledge Vault app) or the Workflows
+ * drive (Workflow Studio). The app bar is the only shell chrome left on screen.
+ */
+export function WorkspaceScreen(props: { client: GraphQLReactorClient; driveId: string; appId: WorkspaceApp; fallbackTitle?: string; onBack: () => void; onSettings?: () => void }) {
   const [ready, setReady] = useState(false);
+  const [title, setTitle] = useState(props.fallbackTitle ?? "");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -22,11 +30,12 @@ export function VaultScreen(props: { client: GraphQLReactorClient; driveId: stri
       .get<DriveDoc>(props.driveId)
       .then((drive) => {
         if (cancelled) return;
-        // The GraphQL read carries no header.meta, and meta.preferredEditor is how
-        // the app module is chosen. This screen only opens vault drives, so a
-        // missing pointer is healed with the vault app's id (the server's wins).
-        const meta = { preferredEditor: "knowledge-vault", ...(drive.header.meta ?? {}) };
+        // The GraphQL read carries no header.meta, and meta.preferredEditor is how the app
+        // module is chosen; a missing pointer is healed with this screen's app (the server's wins).
+        const meta = { preferredEditor: props.appId, ...(drive.header.meta ?? {}) };
         const withMeta = { ...drive, header: { ...drive.header, meta } } as DriveDoc;
+        const stateName = (drive.state as { global?: { name?: string } } | undefined)?.global?.name;
+        setTitle(stateName || drive.header.name || props.fallbackTitle || "");
         setDrives([withMeta]);
         setSelectedDrive(withMeta); // the object: a string argument is taken as a slug
         setReady(true);
@@ -38,16 +47,13 @@ export function VaultScreen(props: { client: GraphQLReactorClient; driveId: stri
       setSelectedDrive(undefined);
       setDrives([]);
     };
-  }, [props.client, props.driveId]);
+  }, [props.client, props.driveId, props.appId, props.fallbackTitle]);
 
   return (
     <div className="kv-vault-screen">
-      <nav className="kv-appbar">
-        <button type="button" onClick={props.onBack}>← Vaults</button>
-        <span className="kv-appbar-title">{props.title}</span>
-      </nav>
-      {error && <p role="alert">Could not open this vault: {error}</p>}
-      {ready ? <AppContainer /> : !error && <p role="status">Opening…</p>}
+      <AppBar title={title} onBack={props.onBack} onSettings={props.onSettings} />
+      {error && <p role="alert" className="kv-error kv-main">Could not open this {props.appId === "workflow-studio" ? "workspace" : "vault"}: {error}</p>}
+      {ready ? <AppContainer /> : !error && <p role="status" className="kv-quiet kv-main">Opening…</p>}
     </div>
   );
 }
@@ -61,7 +67,7 @@ function AppContainer() {
   if (!app) return <p role="alert">This drive has no app to show it with.</p>;
   const AppComponent = app.Component;
   return (
-    <Suspense fallback={<p role="status">Loading the vault…</p>}>
+    <Suspense fallback={<p role="status">Loading the app…</p>}>
       <div className="kv-app">
         <AppComponent>{selectedDocumentId ? <DocumentEditorContainer /> : null}</AppComponent>
       </div>

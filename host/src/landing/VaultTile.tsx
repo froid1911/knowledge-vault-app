@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { VaultGraphSample } from "../api/graph.js";
 import type { VaultSummary } from "../vaults.js";
 import { Constellation } from "./Constellation.js";
@@ -22,29 +22,46 @@ type Props = {
   sample: VaultGraphSample | null;
   saved: Map<string, XY> | null;
   onOpen: () => void;
+  /** The ⋯ menu, rendered beside the tile's open area (a button cannot contain a button). */
+  menu?: ReactNode;
 };
 
-/** One vault. The whole tile opens it; the constellation is the vault's own graph. */
-export function VaultTile({ vault, lead, opened, sample, saved, onOpen }: Props) {
+/** One vault: the open area is a single button; the constellation is the vault's own graph. */
+export function VaultTile({ vault, lead, opened, sample, saved, onOpen, menu }: Props) {
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     if (sample === null) return;
     const frame = requestAnimationFrame(() => setSettled(true));
     return () => cancelAnimationFrame(frame);
   }, [sample]);
-  // The canvas keeps the tile's own proportions, so nothing is cropped (the SVG letterboxes in the same colour).
   const width = lead ? 660 : 320;
   const height = lead ? 330 : 130;
   return (
-    <button type="button" className="kv-tile" data-lead={lead} onClick={onOpen} aria-label={`Open ${vault.name}`}>
-      <div className="kv-tile-sky">
-        <Constellation sample={sample} saved={saved} seed={vault.id} width={width} height={height} settled={settled} />
-      </div>
+    <article className="kv-tile" data-lead={lead}>
+      <button type="button" className="kv-tile-main" onClick={onOpen} aria-label={`Open ${vault.name}`}>
+        <div className="kv-tile-sky">
+          <Constellation sample={sample} saved={saved} seed={vault.id} width={width} height={height} settled={settled} />
+        </div>
+        <div className="kv-tile-body">
+          <h3 className="kv-tile-name">{vault.name}</h3>
+          <p className="kv-tile-meta">{tileSentence(vault, sample, opened)}</p>
+          {lead && <span className="kv-tile-open">Open</span>}
+        </div>
+      </button>
+      {menu && <div className="kv-tile-menu">{menu}</div>}
+    </article>
+  );
+}
+
+/** A tile-shaped placeholder while the vaults load. */
+export function SkeletonTile({ lead }: { lead: boolean }) {
+  return (
+    <div className="kv-tile kv-tile-skeleton" data-lead={lead} aria-hidden="true">
+      <div className="kv-tile-sky" />
       <div className="kv-tile-body">
-        <h3 className="kv-tile-name">{vault.name}</h3>
-        <p className="kv-tile-meta">{tileSentence(vault, sample, opened)}</p>
-        {lead && <span className="kv-tile-open">Open</span>}
+        <span className="kv-skeleton-line kv-skeleton-name" />
+        <span className="kv-skeleton-line kv-skeleton-meta" />
       </div>
-    </button>
+    </div>
   );
 }

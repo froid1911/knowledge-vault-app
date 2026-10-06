@@ -24,7 +24,7 @@ describe("installExternalLinks", () => {
   it("intercepts clicks on external anchors and window.open, leaves the app's own links alone", () => {
     const open = vi.fn();
     uninstall = installExternalLinks(open);
-    document.body.innerHTML = '<a id="ext" href="https://openrouter.ai/auth">login</a><a id="own" href="/vault/1">vault</a>';
+    document.body.innerHTML = '<a id="ext" href="https://openrouter.ai/auth">login</a><a id="own" href="#/vault/1">vault</a>';
     const ext = document.getElementById("ext")!;
     const own = document.getElementById("own")!;
     const extEvent = new MouseEvent("click", { bubbles: true, cancelable: true });

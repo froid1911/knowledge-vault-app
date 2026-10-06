@@ -1,4 +1,4 @@
-import { chmodSync, existsSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync } from "node:fs";
 import { register } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,8 @@ import { applyEnvironment, engineEnvironment } from "./environment.js";
 import { switchboardOptions } from "./options.js";
 import { readyLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
-import { createVaultDrive, listVaultDrives } from "./vaults.js";
+import { readSettings, writeSettings } from "./settings.js";
+import { createVaultDrive, deleteVaultDrive, ensureWorkflowsDrive, listVaultDrives, renameVaultDrive } from "./vaults.js";
 
 // The data-dir storage swap must be registered before the Switchboard (and
 // through it @powerhousedao/pglite-fs) is imported — hence the dynamic import below.
@@ -23,6 +24,17 @@ register(new URL("./nodefs-hooks.mjs", import.meta.url));
 const PACKAGE_DIRS = ["@powerhousedao/knowledge-note", "@powerhousedao/workflow"].map((name) =>
   fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url)),
 );
+
+/** The version in a package directory's manifest, for About and Diagnostics. */
+function packageVersion(dir: string): string {
+  try {
+    return (JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { version?: string }).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+const STACK_VERSION = packageVersion(fileURLToPath(new URL("../node_modules/@powerhousedao/switchboard", import.meta.url)));
+const VAULT_PACKAGE_VERSION = packageVersion(PACKAGE_DIRS[0]!);
 
 async function main(): Promise<void> {
   const cfg = readSidecarConfig(process.env);
@@ -53,9 +65,23 @@ async function main(): Promise<void> {
   const control = createControlServer({
     token: cfg.controlToken,
     hostOrigin: cfg.hostOrigin,
-    status: () => ({ ok: true, port: switchboard.port, controlPort: cfg.controlPort, appVersion: cfg.appVersion, protected: cfg.protected }),
+    status: () => ({
+      ok: true,
+      port: switchboard.port,
+      controlPort: cfg.controlPort,
+      appVersion: cfg.appVersion,
+      protected: cfg.protected,
+      dataDir: cfg.dataDir,
+      stackVersion: STACK_VERSION,
+      vaultPackageVersion: VAULT_PACKAGE_VERSION,
+    }),
     listVaults: () => listVaultDrives(origin),
     createVault: (name) => createVaultDrive(origin, name),
+    renameVault: (id, name) => renameVaultDrive(origin, id, name),
+    deleteVault: (id) => deleteVaultDrive(origin, id),
+    workflowsDrive: () => ensureWorkflowsDrive(origin),
+    readSettings: () => readSettings(cfg.dataDir),
+    writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
   });
   const controlPort = await control.listen(cfg.controlPort);
   process.stdout.write(readyLine(switchboard.port, controlPort) + "\n");

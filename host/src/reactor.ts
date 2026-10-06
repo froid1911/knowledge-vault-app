@@ -3,7 +3,9 @@ import {
   ensurePHEventHandlers,
   GraphQLReactorClient,
   setDocumentCache,
+  setDefaultDrivesUrl,
   setReactorClient,
+  setSwitchboardUrl,
   setVetraPackageManager,
   StaticPackageManager,
 } from "@powerhousedao/reactor-browser";
@@ -22,6 +24,11 @@ export function installReactor(info: SidecarInfo, libs: readonly DocumentModelLi
   const documentModels = libs.flatMap((lib) => [...lib.documentModels]);
   const client = new GraphQLReactorClient({ url: info.graphqlUrl, documentModels });
   setReactorClient(client);
+  setSwitchboardUrl(info.graphqlUrl);
+  // Workflow Studio derives its runtime endpoint from the drive's sync channel or, failing
+  // that, from the default drives URL — never from the Switchboard URL. There is no sync
+  // manager here, so the default drives URL names this engine.
+  setDefaultDrivesUrl(`${info.origin}/d/workflows`);
   setDocumentCache(new DocumentCache(client));
   setVetraPackageManager(new StaticPackageManager(libs));
   return client;

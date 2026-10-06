@@ -3,7 +3,8 @@
 | Plan | Phase | Depth |
 |---|---|---|
 | `2026-10-06-phase0-foundation.md` | 0 — foundation: package host mode, sidecar, host, dev loop, Tauri dev shell, e2e gate | full TDD steps |
-| `2026-10-06-phase1-vaults-identity.md` | 1 — designed landing, sign-in, protection switch, settings | full TDD steps |
+| `2026-10-06-phase1-lite-launcher-settings-workflows.md` | 1-lite — launcher polish, vault rename/delete, Settings view, Workflow Studio full-view (pulled forward) | task outline, executed natively |
+| `2026-10-06-phase1-vaults-identity.md` | 1 — sign-in, protection switch, identity in Settings (the landing and Settings shell exist since 1-lite) | full TDD steps |
 | `2026-10-06-phase2-pipeline.md` | 2 — pipeline template, models, Workflow Studio | full TDD steps |
 | `2026-10-06-phase3-remote-vaults.md` | 3 — remote vaults in client mode, host-provided bearer | outline (expand before execution) |
 | `2026-10-06-phase4-conversion.md` | 4 — conversion tiers | outline |
