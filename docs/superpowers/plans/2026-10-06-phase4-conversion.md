@@ -75,4 +75,4 @@
 - All gates and `bun run e2e` pass; spec and ledger describe what was built.
 
 ## Status
-Stage A started 2026-10-06 (native execution).
+Stage A: Tasks 1–5 landed 2026-10-06 (docling 2cfa01e; package 40d996d8, 2e32f22f; desktop 2eb4915, 5c97eae); Task 6 (e2e, docs, ledger) landed the same day — Stage A complete; Stage B next. Ledger: docs/superpowers/ledgers/2026-10-06-phase4-conversion.md.

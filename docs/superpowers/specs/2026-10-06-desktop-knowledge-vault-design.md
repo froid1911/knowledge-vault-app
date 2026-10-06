@@ -26,7 +26,7 @@ Replicating a remote vault locally (client mode only — not designed for later 
 | Remote vaults | **Client mode only**: the same UI pointed at the remote Switchboard with the user's bearer. |
 | Release target | Linux x64 and macOS (arm64, x64) team builds, unsigned. |
 | Pipeline | Runs locally: workflow runtime + our piece + a shipped pipeline template instantiated per vault; LLM endpoint/key from Settings. **Workflow Studio** is reachable from Settings for additional workflows. |
-| Conversion | Optional and tiered: built-in pdfjs baseline; native `docling.rs` sidecar (Linux/Windows) installed on demand; Docker container; or a remote URL. |
+| Conversion | On this computer, without Docker: the docling service as a helper process — text PDFs, Markdown and plain text out of the box; the `docling.rs` binding (Office formats) and the PDF models (scans, OCR) installed on demand; or another server by URL (§6). |
 | Architecture | Tauri (Rust) shell + Node sidecar + our own host web app. |
 | Code source | `@powerhousedao/knowledge-note` is consumed as a **package**; fixes it needs land in `bai-knowledge-note` and ship as releases. |
 | Branching | Work on `dev`; merging to `main` produces the app build and a GitHub Release; the same build runs locally. |
@@ -39,7 +39,7 @@ Replicating a remote vault locally (client mode only — not designed for later 
 
 ```
 desktop-knowledge-vault/
-├── src-tauri/        Rust shell: window, app-data dir, sidecar supervisor + env, system-browser launch, tray, Docker control
+├── src-tauri/        Rust shell: window, app-data dir, sidecar supervisor + env, system-browser launch, tray
 ├── sidecar/          Node: startSwitchboard(...) with @powerhousedao/knowledge-note + @powerhousedao/workflow; control API; tier-0 converter
 ├── host/             Vite + React web app: landing, vault list, settings, mounts the vault app, its editors and Workflow Studio
 ├── assets/           vault-icon.png — the one icon source (Tauri icon set, favicon, landing mark are generated from it)
@@ -50,7 +50,7 @@ desktop-knowledge-vault/
 
 ### 3.2 Processes at runtime
 
-1. **Tauri shell (Rust).** Resolves the app-data dir, reads `config.json`, picks free loopback ports (defaults: host 4200, sidecar 4201, control 4202 — never 4001/3001, fall back upward if busy), serves `host/dist` over loopback HTTP, spawns the sidecar with its environment, and relays the sidecar's readiness and status to the webview. It also opens the system browser for sign-in, manages the tray, and controls the Docker converter.
+1. **Tauri shell (Rust).** Resolves the app-data dir, reads `config.json`, picks free loopback ports (defaults: host 4200, sidecar 4201, control 4202 — never 4001/3001, fall back upward if busy), serves `host/dist` over loopback HTTP, spawns the sidecar with its environment, and relays the sidecar's readiness and status to the webview. It also opens the system browser for sign-in, manages the tray.
 2. **Sidecar (Node, bundled runtime).** Boots the Switchboard: PGlite on plain on-disk data dirs, workflows on, MCP on, telemetry off, auth per the local protection setting. Exposes a loopback **control API** (§4.6) for the shell and the host. Prints one readiness line.
 3. **Webview.** Loads the host from `http://127.0.0.1:<hostPort>` and talks to the sidecar over GraphQL, REST and the WebSocket change feed on `http://127.0.0.1:<sidecarPort>`. A remote vault is the same client code pointed at `https://switchboard.<…>` with the user's bearer. **There is no reactor in the browser**, hence no IndexedDB replica and no sync channels.
 
@@ -64,7 +64,7 @@ vault/
   read-model/       PGlite data dir (read models, graph index, embeddings, workflow runtime)
   attachments/
   backups/<date>-<stackVersion>/
-  converter/        native docling.rs binding + ONNX weights (tier 1), when installed
+  converter/        the docling.rs binding and the PDF models (converter/models), when installed (Stage B)
   secrets/          mode 0700 — app.keypair.json, user.keypair.json, user.credential.json, workflows.key, llm.key (each 0600)
   logs/             sidecar.log (rotated), shell.log
   .ph/              what the Renown SDK and the registry cache write relative to cwd (the engine runs with cwd = vault/)
@@ -248,25 +248,29 @@ Enter in the name field creates and opens the vault. While the engine starts, th
 - **Window.** One main window, minimum 960 × 640, state (size, position, maximised) persisted; theme is dark by default (the vault app's own default) with light and system as overrides in Settings — `<html>` carries the `dark` class and `color-scheme: dark` before first paint; close-to-tray configurable (default on) so the engine keeps serving the CLI and agents.
 - **Webview parity checks** (Phase 0): WebGL for the PixiJS graph, WASM and WebSocket on WebKitGTK and WKWebView; keyboard focus visible everywhere; `prefers-reduced-motion` respected.
 
-## 6. Document conversion tiers
+## 6. Document conversion
 
-One setting, the tiers the machine can use, each with Install / Enable / Disable:
+Documents convert **on this computer, without Docker**. The converter is the user's own docling service (`@powerhousedao/docling-service`, repo `docling`), vendored into the sidecar (`sidecar/converter/`) and run by the app's bundled Node as a helper process on a free loopback port. It starts with nothing installed and grows as components are installed; every state is a *working* service, honestly described by its own `/health`:
 
-| Tier | Converts | Needs | Memory when on |
+| Installed (app-data `converter/`) | Converts | Download | Memory when on |
 |---|---|---|---|
-| 0 Built-in (always) | pasted text/markdown, `.txt/.md/.html`, text PDFs via `pdfjs-dist` | nothing | ~0 |
-| 1 Native converter | everything `docling.rs` handles (PDF incl. scanned/OCR, DOCX, PPTX, XLSX, images) | one-time ~1.4 GB download of the platform binding + ONNX weights into `converter/`; Linux x64/arm64 and Windows x64 today, macOS when upstream publishes a darwin build | ~1.4 GB while enabled |
-| 2 Docker converter | same as tier 1 | Docker running; the shell pulls the image with progress and runs `kv-convert` on a loopback port with a named models volume; "Off" = `docker stop`, "Remove" offered; stopped on app exit | ~1.4 GB in the container |
-| Remote URL | same | any reachable conversion service | 0 locally |
+| nothing — Stage A, shipped | pasted text, `.md`/`.txt`, **text PDFs** through the pdf.js text layer (`textSource: "pdfjs"`). A PDF without a readable text layer is refused with the remedy (`NEEDS_CONVERTER`), never an empty source; other formats answer `BINDING_REQUIRED` | 0 | ~50 MB |
+| + the `docling.rs` binding — Stage B | plus `docx`, `xlsx`, `pptx`, `csv`, `epub`, `html`, … | 56–71 MB (npm registry tarballs, integrity-checked, resumable) | ~50 MB |
+| + the PDF models — Stage B | plus scanned PDFs, images, layout and tables, OCR | ~700 MB (upstream manifest, sha256-checked, resumable) | ~0.7–1.4 GB |
+| another server, by URL | whatever that service does (a team's container, for example) | 0 locally | 0 |
 
-Tier 0 is a tiny service inside the sidecar implementing the documented conversion contract (`/health`, `/convert`, docling's chunk shape). Enabling a tier sets the vault package's conversion URL at runtime (§7.4); `convert/health` reports *not available on this platform / not installed / installing / starting / ready / down*.
+One setting — *Where documents convert*: **on this computer** (default), **another server** by URL, or **off**. Changing it points the vault package's conversion service at the new place at runtime (§7.4) — no engine restart; an in-flight conversion finishes where it started. The helper is supervised lightly: one automatic restart; then *Not responding* with the exit code and the log (`logs/converter.log`), the engine's URL cleared so `convert/health` says `configured: false`, and a *Restart* action. Settings › Conversion shows the state (*Ready · Starting · Stopped · Not responding*) and one sentence derived from the health answer's `formats`, `binding` and `ready` — never a hard-coded list — and, in Stage B, *Install / Installing n % / Installed / Remove* for the binding and the models.
+
+**macOS:** `docling.rs` publishes no darwin binding — upstream omits it only for lack of macOS runners, not for a technical reason — so Plan 6 builds it on the Mac runners and hosts it with our releases. Until then macOS has the first row and *another server*.
+
+The vendored copy is kept honest by `scripts/sync-converter.mjs` (`--check` fails on drift; `sidecar/converter/SOURCE.json` names the source commit). The service gained a *no-binding mode* for this (`CONVERT_DISABLE_BINDING=1` forces it for tests), which also makes a container without models useful.
 
 ## 7. Changes in the vault package (`bai-knowledge-note`)
 
 1. **Switchboard origin as a runtime setting** (`editors/shared/subgraph-endpoint.ts`): a host-provided origin, set per selected vault through the app config, wins over the hostname heuristics; `resolveReactorEndpoint`, `resolveAuthEndpoint`, `resolveKnowledgeGraphEndpoint` and `editors/shared/remote-reactor.ts` follow it. Heuristics remain the fallback for Connect and the hosted vault.
 2. **Host-aware boot** (`editors/knowledge-vault/lib/boot.ts`, `lib/remote-memory.ts`, `hooks/use-remote-first.ts`): skip the Connect-specific work (sync-channel neutralising, remembered-drive re-adding, drive-snapshot hydration) when the host declares itself and no sync manager exists. Independently, cap the Switchboard probe with backoff — the spike recorded 250 requests in 100 s against an unreachable origin, a bug in Connect too.
-3. **Open mode**: the `http` subgraph's bearer guard follows the server's auth setting (anonymous allowed when `AUTH_ENABLED=false`, identity recorded as the sidecar's); `AuthGate`, the Access view and signer badges render an "open vault" state instead of sign-in prompts. Protected mode unchanged.
-4. **Conversion URL at runtime**: the `convert` subgraph accepts the service URL from a loopback-only setter as well as the environment, and `convert/health` reports the live value and tier state.
+3. **Open mode** (as built): both route guards — `subgraphs/http/lib/authorize.ts` and its mirror `subgraphs/convert/lib/authorize.ts` — accept an anonymous caller only when the host runs with authentication off **and** declares `KNOWLEDGE_VAULT_OPEN_MODE=1` (the sidecar sets it when not protected); the caller is the engine's owner, attributed to the engine's own key (`KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS`, else `local`). A hosted deployment that merely has auth off declares nothing and stays closed. The vault app shows no sign-in gate in open mode (verified by the e2e). Protected mode unchanged.
+4. **Conversion service at runtime** (as built): `setConversionServiceUrl(url | null)` swaps the service the `convert` routes read per request — no re-registration, no restart; `null` means none, also over an environment-configured service until the next setup. `ConvertSubgraph.onSetup` binds one live deps object for the process (a reload configures it in place) and publishes the setter on `globalThis[Symbol.for("@powerhousedao/knowledge-note/convert")]` for a host that starts the Switchboard inside its own process; `convert/health` reports `source: env | runtime | null`.
 5. **Pipeline template**: the working *Vault pipeline (auto)* workflow and its connection exported once as a template with placeholders (drive id, local origin, LLM secret reference) and shipped at `pieces/knowledge-vault/templates/` behind a new `./pieces/knowledge-vault/templates` export, versioned with the piece.
 6. **Relied on, unchanged**: `use-drive-init.ts` (folders and singletons on first open, now through the configurable origin); the embedding model and onnxruntime WASM under `dist/node/`; `SWITCHBOARD_APP_NAME` labelling.
 
@@ -276,7 +280,7 @@ Tier 0 is a tiny service inside the sidecar implementing the documented conversi
 |---|---|---|
 | Powerhouse (`reactor-api`/`switchboard`) | a `host` option so the server can bind `127.0.0.1` | one-time acknowledgement for open mode; protected mode unaffected |
 | Powerhouse (`switchboard`) | a plain data-dir (NodeFS) storage option instead of `AtomicNodeFs` for local use | the sidecar's loader shim |
-| `docling.rs` | a darwin build | tiers 2 and Remote on macOS |
+| `docling.rs` | a darwin build (omitted upstream only for lack of macOS runners) | Plan 6 builds the darwin binding on our Mac runners; until then macOS has the binding-less tier and *another server* |
 
 ## 9. Error handling and resilience
 
@@ -284,13 +288,13 @@ Tier 0 is a tiny service inside the sidecar implementing the documented conversi
 - **Store safety and upgrades.** `config.json` records the stack version that last opened the store. A stack bump first backs up both data dirs to `backups/<date>-<version>/` (free-space check), then starts; a PGlite-major migration runs only after that backup. An app older than the store's version refuses to open it. *Back up / Restore* = quiesce the sidecar, zip the data dirs, reverse to restore; *Export as documents* uses the existing REST export.
 - **Remote vaults.** 401 → "your sign-in expired" with renew; 403 → the administrator message with the address; offline → explicit banner (client mode has no cache); a server older than dev.35 (missing the renamed GraphQL arguments) is detected by a probe query and reported.
 - **Pipeline and models.** Endpoint/key validated on save (a one-token request); run failures surface as a badge in the Pipeline view linking to the run in Workflow Studio; local-only mode blocks egress and says so.
-- **Converter.** Explicit states with the one action that fixes each; downloads are resumable; Docker absence or permission problems are reported with the exact remedy.
+- **Converter.** Explicit states with the one action that fixes each (*Ready · Starting · Stopped · Not responding*; *Restart*); downloads are resumable and checksum-verified; a format the current install cannot read answers with the remedy, never an empty source.
 - **Data retention.** Uninstalling leaves the app-data directory in place; Settings › Vaults › *Delete all local data* removes it after a typed confirmation.
 - **Secrets.** `secrets/` at mode 0600 (OS keychain later), never in webview storage; *Sign out* removes the credential; *Reset identity* deletes the user keypair with a warning about attribution continuity.
 
 ## 10. Testing
 
-- **Rust:** app-data paths, config read/migrate, port selection, supervisor state machine, Docker detection parsing.
+- **Rust:** app-data paths, config read/migrate, port selection, supervisor state machine.
 - **Sidecar:** env assembly for both modes, readiness protocol, control API auth, tier-0 converter against the contract (pdfjs fixtures), template instantiation against a fake GraphQL server.
 - **Host:** vault/config model, the wiring adapter (the contract in §5.3), sign-in state handling, settings validation.
 - **Vault package** (in `bai-knowledge-note`): origin override, host-aware boot, open-mode guard, convert setter.
@@ -334,6 +338,6 @@ The 1 GB snapshot holds ~660 MB of real data (keyframes 319 MB, operations 131 M
 1. Vault creation and first run; landing; identity via the system-browser flow; protection switch (§7.3).
 2. Pipeline: template export (§7.5), instantiation, Models settings, Workflow Studio mount.
 3. Remote vaults.
-4. Conversion tiers: built-in and remote URL (§7.4); then native and Docker.
+4. Conversion without Docker (§6, §7.3–7.4): Stage A — the service's no-binding mode, the open-mode guard, the runtime conversion service, the helper and Settings › Conversion (landed 2026-10-06); Stage B — installable binding and models; the darwin binding in Plan 6.
 5. Resilience: supervisor, backups, upgrade guard, diagnostics, tray.
 6. Packaging, CI, e2e and performance gates; macOS builds.
