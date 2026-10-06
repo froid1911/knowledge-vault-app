@@ -1,5 +1,31 @@
 {
   "name": "@desktop-knowledge-vault/host",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4200 --strictPort",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "tsc": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@powerhousedao/design-system": "6.2.3-dev.44",
+    "@powerhousedao/knowledge-note": "file:../../bai-knowledge-note",
+    "@powerhousedao/reactor-browser": "6.2.3-dev.44",
+    "@powerhousedao/workflow": "6.2.3-dev.44",
+    "@tauri-apps/api": "^2.9.0",
+    "document-model": "6.2.3-dev.44",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.2.3",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.10",
+    "vitest": "4.1.1"
+  }
 }

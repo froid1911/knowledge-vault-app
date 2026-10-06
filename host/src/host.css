@@ -1,0 +1,14 @@
+/* host/src/host.css — Phase 0 chrome only; the designed landing arrives in Phase 1 */
+:root { font-family: Inter, system-ui, sans-serif; color: #1C2128; background: #F7F8F6; }
+body, #root { margin: 0; height: 100vh; }
+.kv-landing { max-width: 1040px; margin: 0 auto; padding: 32px 24px; }
+.kv-vaults { list-style: none; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.kv-vaults button { width: 100%; text-align: left; padding: 16px; border: 1px solid #D5D9D7; border-radius: 8px; background: white; cursor: pointer; }
+.kv-vaults button:focus-visible, .kv-new-vault button:focus-visible { outline: 2px solid #2F6F8F; outline-offset: 2px; }
+.kv-vault-name { display: block; font-weight: 600; }
+.kv-vault-meta { color: #5B6670; font-size: 14px; }
+.kv-new-vault { display: flex; gap: 8px; align-items: center; margin-top: 24px; }
+.kv-vault-screen { display: flex; flex-direction: column; height: 100vh; }
+.kv-appbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #D5D9D7; background: white; }
+.kv-appbar-title { font-weight: 600; }
+.kv-app { flex: 1; min-height: 0; }
