@@ -25,7 +25,7 @@ key and the pipeline template (Plan 2), remote vaults (Plan 3).
 
 ## Status (2026-10-06)
 
-Tasks 1–4 landed in `dda61aa` (plus the Studio runtime-URL fix); Tasks 7–9 below were added at the user's request and landed in `7155353`; Task 5's e2e additions and the live run are in progress; Task 6 is this update. Pulled forward from Plan 1 (Task 2, identity; Task 5, the Identity section) and Plan 3 (client-mode remote vaults).
+Tasks 1–4 landed in `dda61aa` (plus the Studio runtime-URL fix); Tasks 7–9 below were added at the user's request and landed in `7155353`; Task 5: the live run is done (sign-in, remote vault checked, added and opened as the user; Workflow Studio reachable); `e2e/launcher.spec.ts` is written and runs once the live session ends. Task 6: done; the ledger records the live result and the two fixes it surfaced (one identity controller; Vite's dependency cache cleared by sync:vault). Pulled forward from Plan 1 (Task 2, identity; Task 5, the Identity section) and Plan 3 (client-mode remote vaults).
 
 ## Tasks
 

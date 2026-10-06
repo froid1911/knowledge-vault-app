@@ -18,3 +18,16 @@ With the dev loop running, seed a vault with real notes, maps and links (for scr
 node scripts/seed-demo-vault.mjs --name "Research notes" --size large
 node scripts/seed-demo-vault.mjs --name "Team wiki" --size small
 ```
+
+### Sign in and remote vaults
+
+Settings › Identity → **Sign in with Renown**: the engine opens your browser, you sign with your wallet, and the
+engine keeps the credential on this computer (`vault/secrets/`, mode 0600) — the app never holds a key. Once signed
+in, **Connect remote vault** on the landing takes a Switchboard URL (`https://host/graphql`, `https://host/d/<slug>`
+or `https://host/<slug>`) and a drive id or slug, checks what you may do there, and adds the vault; it opens in client
+mode, talking to that server as you.
+
+### After rebuilding the vault package
+
+`bun run sync:vault` copies the rebuilt `@powerhousedao/knowledge-note` in and clears Vite's dependency cache
+(`host/node_modules/.vite`) — Vite pre-bundles the package and would otherwise keep serving the old build.
