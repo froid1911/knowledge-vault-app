@@ -16,7 +16,7 @@ Audience: the team first (Linux and macOS builds), end users later.
 - Linux `.AppImage`/`.deb` and macOS `.dmg` built by CI from `main`, and the same build reproducible locally.
 
 ### Non-goals (v1)
-Replicating a remote vault locally (client mode only — not designed for later either); Windows build; signed/notarised installers and auto-update; single-binary packaging; any Rust reimplementation of the reactor; sync between two local vaults.
+Replicating a remote vault locally (client mode only — not designed for later either); Windows build; signed/notarised installers and auto-update; single-binary packaging; any Rust reimplementation of the reactor; sync between two local vaults; a user-chosen data-directory location (fixed per platform in v1); in-app analytics (none, ever — see §2).
 
 ## 2. Decisions
 
@@ -30,6 +30,8 @@ Replicating a remote vault locally (client mode only — not designed for later 
 | Architecture | Tauri (Rust) shell + Node sidecar + our own host web app. |
 | Code source | `@powerhousedao/knowledge-note` is consumed as a **package**; fixes it needs land in `bai-knowledge-note` and ship as releases. |
 | Branching | Work on `dev`; merging to `main` produces the app build and a GitHub Release; the same build runs locally. |
+| Telemetry | None in the app; the sidecar's Sentry/OpenTelemetry/Pyroscope stay unset. Nothing leaves the machine unless the user connects a remote vault, a model provider, a converter or signs in. |
+| Landing | Designed with the Six Minds audit (§5.7): the most recent vault is the single visual target; first run is one inline action. |
 
 ## 3. Architecture
 
@@ -84,7 +86,7 @@ This repo depends on the **published** `@powerhousedao/knowledge-note` and impor
 | `PORT` | sidecar port | same | loopback-only once the upstream `host` option exists (§4.7) |
 | `PH_REACTOR_DATABASE_URL` | `<appdata>/reactor` | same | plain PGlite data dir (§4.3) |
 | `DATABASE_URL` | `<appdata>/read-model` | same | read models, graph index, embeddings, workflow runtime |
-| `PH_SWITCHBOARD_PUBLIC_URL` | `http://127.0.0.1:<port>` | same | attachment URLs |
+| `PH_SWITCHBOARD_PUBLIC_URL`, `PUBLIC_URL` | `http://127.0.0.1:<port>` | same | attachment and public URLs (reactor-api reads `PUBLIC_URL`) |
 | `AUTH_ENABLED`, `REQUIRE_AUTHENTICATED_CALLER`, `DEFAULT_PROTECTION`, `DOCUMENT_PERMISSIONS_ENABLED` | `false` | `true` | the four flags from the vault's `.env` |
 | `ADMINS` | empty | the signed-in user's address | |
 | `PH_WORKFLOWS_ENABLED` | `1` | `1` | |
@@ -95,6 +97,8 @@ This repo depends on the **published** `@powerhousedao/knowledge-note` and impor
 | `SENTRY_DSN`, `ENABLE_TRACING`, `PYROSCOPE_SERVER_ADDRESS` | unset | unset | telemetry off |
 | `CONVERT_SERVICE_URL` | unset | unset | replaced by the runtime setter (§7.4) |
 | `KV_CONTROL_PORT`, `KV_CONTROL_TOKEN` | set | set | control API bind port and per-launch secret (§4.6) |
+
+Not carried over from the vault's `.env`: `TYPESAFE_API_KEY` (unused by the code) and `CONVERT_SERVICE_URL` (replaced by the runtime setter, §7.4).
 
 ### 4.3 Storage
 
@@ -130,7 +134,7 @@ Vite + React 19 + TypeScript; `@powerhousedao/reactor-browser` and `@powerhoused
 
 1. **Landing / vault picker** — branded: local vaults (name, note count, last activity, protected badge), remote vaults, *New local vault*, *Connect remote vault* (Switchboard URL + drive id or slug), sign-in state, sidecar state while starting.
 2. **Vault** — the unchanged Knowledge Vault drive app full-window, its 10 document editors mounted by document type (as Connect's `useEditorModules` does), plus a slim app bar: back, vault name, protected badge, identity.
-3. **Settings** — *Identity* (sign in/out via the system browser, address/DID, credential expiry, renew); *Models* (one OpenAI-compatible endpoint + key, or a local endpoint such as Ollama/LM Studio, shared by chat and pipeline; *local-only mode*); *Vaults* (protect switch, rename, delete, back up/restore, export as documents); *Conversion* (§6); *Workflows* (Workflow Studio); *Diagnostics* (sidecar status, ports, store sizes, logs, re-index, copy diagnostics); *About* (app version, stack version, package version).
+3. **Settings** — *Identity* (sign in/out via the system browser, address/DID, credential expiry, renew); *Models* (one OpenAI-compatible endpoint + key, or a local endpoint such as Ollama/LM Studio, shared by chat and pipeline; *local-only mode*); *Vaults* (protect switch, rename, delete, back up/restore, export as documents); *Conversion* (§6); *Workflows* (Workflow Studio); *Diagnostics* (engine status, ports, store sizes, logs, re-index, copy diagnostics, and **Connect your tools**: the `switchboard init --url http://127.0.0.1:<port>/graphql --name local-vault` line and the MCP URL `http://127.0.0.1:<port>/mcp`, with the note that protected mode needs `switchboard auth login --token "$(ph access-token)"`); *About* (app, stack and package versions; an **update notice** that checks the GitHub Releases feed on launch and links to the download — there is no auto-update in v1).
 
 ### 5.3 Wiring contract
 
@@ -162,6 +166,70 @@ A remote vault is a `config.json` entry `{kind:"remote", name, switchboardUrl, d
 }
 ```
 Secrets are never in this file; `models.keyRef`-style values point into `secrets/`.
+
+### 5.7 Landing and first-run design
+
+Designed with the Six Minds audit (vision, wayfinding, memory, language, decision, emotion) and reviewed against generic defaults.
+
+**Audience and job.** Team members first (they know notes, maps of content, sources, pipeline), end users later. The landing's one job: get the person into a vault fast and tell them, without jargon, that the local engine is ready. The screen is the app's front door, never a workspace: inside a vault a slim app bar with **← Vaults** returns here.
+
+**Cognitive audit (summary).**
+- *Vision:* for a returning user the single target is the most recently opened vault — the largest tile, highest contrast, pre-focused; everything else is quiet. On first run the single target is the inline **Create your first vault** field.
+- *Wayfinding:* three fixed landmarks — header (app name left, identity right), the vault tiles as the main area, an engine status strip at the bottom. Vault switching always passes through this screen; there is no second drive list anywhere.
+- *Memory:* the vocabulary and the picker pattern people already know — Obsidian's vault picker and VS Code's welcome page: recent first, "New vault", "Open". Gear for settings, lock for protected, green dot for running.
+- *Language:* primary UI says Vault, Notes, Sources, Pipeline, Processing, Sign in, Protected, Remote vault. Never Switchboard, sidecar, reactor, drive, PGlite, bearer. Expert terms appear only where experts need them: the remote-vault form labels its fields **Vault server (Switchboard URL)** and **Drive id or slug**; Diagnostics speaks the engineering vocabulary.
+- *Decision:* the microgoals in order — Is it ready? → Which vault? → (none) Create one, which needs only a name → Open. Model setup for processing is **not** a prerequisite: creation never blocks on it; a non-blocking banner inside the new vault says "Set up a model to process sources automatically" and links to Settings › Models. Connecting a remote vault asks for sign-in first, then the address, then checks access and shows the result (drive name and READ/WRITE/none) before adding.
+- *Emotion:* appeal — each vault tile carries a small live constellation of that vault's own graph (real node positions from the saved layout; a quiet generative constellation until the first notes exist). Enhance — fast, local, offline, nothing to install. Awaken — "a thinking system you own". Anxieties addressed in place: the status strip's one sentence "Everything stays on this computer unless you connect a remote vault, a model provider or a converter" (with a link to Settings), the protected lock explained on hover, and Back up visible in Settings › Vaults.
+
+**Concepts evaluated.** *A Minimal list* (rows + two buttons, fastest, emotionally flat) · *B Welcome page* (recent + start actions + status column; conventional, predictable, a little busy) · *C Immersive* (full-bleed graph of the last vault as hero; strong appeal, weak wayfinding, slow first paint). **Chosen: B's structure, A's single pre-focused target, C's constellation confined to the tiles.** The constellation tile is the one place boldness is spent; everything around it is disciplined.
+
+**Visual plan (tokens).**
+- *Palette:* paper `#F7F8F6` and ink `#1C2128` (light); slate `#15181D` and chalk `#E6E8EA` (dark); action ink-wash blue `#2F6F8F`; amber `#C98A1B` reserved for the protected lock and attention; ready green `#2E8B57`. Graph node colours are inherited from the vault app's graph (one per note type) so tiles and the real graph agree. Rejected as defaults: cream + terracotta, near-black + acid green, identical rounded cards with one shadow.
+- *Type:* Inter for UI (continuity with the vault app) and a humanist serif (Source Serif 4) for vault names only — the one typographic moment; no all-caps labels, no eyebrows, no middle-dot meta strings (tile metadata is a sentence: "2,165 notes, opened 2 days ago").
+- *Layout:* left-aligned, content max-width 1040 px, 24 px grid; window minimum 960 × 640. Tiles vary by recency: the most recent spans two columns with a larger constellation; others are single. Remote vaults sit in the same grid with a small "remote" mark, not in a separate section.
+- *Motion:* one orchestrated moment — when the engine reports ready, each tile's constellation settles into its saved positions once (disabled under reduced motion). No hover animation on tiles; focus is a visible 2 px ring in action blue.
+- *Copy:* sentence case, active verbs, the same word through a flow ("New vault" → "Create vault" → toast "Vault created"). Errors say what happened and what fixes it ("The engine could not start: port 4201 is in use. Change the port in Settings › Diagnostics.").
+
+**Wireframe — returning user.**
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Knowledge Vault                                        0x7A3…c4 ▾  ⚙     │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Vaults                                       New vault   Connect remote │
+│                                                                          │
+│  ┌──────────────────────────────────┐  ┌───────────────┐ ┌─────────────┐ │
+│  │ ·  ·    ·  ╱·   constellation    │  │ ·  ·· ·       │ │ · ·    ·    │ │
+│  │   ·  ·╲ ·     ·   ·   ·  ·       │  │  ·  ·  ·      │ │  ·   ··   · │ │
+│  │ Research notes          (serif)  │  │ Team wiki  🔒 │ │ powerhouse- │ │
+│  │ 2,165 notes, opened 2 days ago   │  │ 371 notes     │ │ knowledge ⇅ │ │
+│  │                         [ Open ] │  │ Sign in to    │ │ remote      │ │
+│  └──────────────────────────────────┘  │ open          │ └─────────────┘ │
+│                                        └───────────────┘                 │
+├──────────────────────────────────────────────────────────────────────────┤
+│ ● Ready   Everything stays on this computer unless you connect a remote  │
+│           vault, a model provider or a converter.  Settings    v0.1.0    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+**Wireframe — first run.**
+```
+│  Create your first vault                                                 │
+│  ┌──────────────────────────────────────────────────────────────┐        │
+│  │ Name   [ Research notes                     ]  Create vault  │        │
+│  └──────────────────────────────────────────────────────────────┘        │
+│  Already have a vault on a server?  Connect a remote vault               │
+│                                                                          │
+│ ◐ Starting the engine — opening your store…                              │
+```
+Enter in the name field creates and opens the vault. While the engine starts, the field is editable and the button waits with the live step shown; nothing else competes for attention.
+
+**Six Minds mapping.** *Vision:* one largest, pre-focused tile; tiles are the only coloured elements. *Wayfinding:* header / tiles / status strip never move; ← Vaults inside a vault. *Memory:* Obsidian/VS Code picker schema, gear, lock, green dot. *Language:* user vocabulary in primary UI, expert terms only in the remote form and Diagnostics. *Decision:* ready → which vault → create (name only) → open; model setup deferred and offered in place. *Emotion:* the vault's own constellation as appeal; privacy sentence, lock explanation and Back up as anxiety relief.
+
+### 5.8 Desktop webview integration
+
+- **File intake.** Tauri's own drag-and-drop handler is disabled (`dragDropEnabled: false`) so HTML5 drop events reach the vault app's intake; a native file picker (dialog plugin) is offered beside it.
+- **Links and files.** External links open in the system browser (opener plugin); exports and backups use native save dialogs; the clipboard is allowed for the app's copy actions.
+- **Window.** One main window, minimum 960 × 640, state (size, position, maximised) persisted; theme follows the system with an override in Settings; close-to-tray configurable (default on) so the engine keeps serving the CLI and agents.
+- **Webview parity checks** (Phase 0): WebGL for the PixiJS graph, WASM and WebSocket on WebKitGTK and WKWebView; keyboard focus visible everywhere; `prefers-reduced-motion` respected.
 
 ## 6. Document conversion tiers
 
@@ -200,6 +268,7 @@ Tier 0 is a tiny service inside the sidecar implementing the documented conversi
 - **Remote vaults.** 401 → "your sign-in expired" with renew; 403 → the administrator message with the address; offline → explicit banner (client mode has no cache); a server older than dev.35 (missing the renamed GraphQL arguments) is detected by a probe query and reported.
 - **Pipeline and models.** Endpoint/key validated on save (a one-token request); run failures surface as a badge in the Pipeline view linking to the run in Workflow Studio; local-only mode blocks egress and says so.
 - **Converter.** Explicit states with the one action that fixes each; downloads are resumable; Docker absence or permission problems are reported with the exact remedy.
+- **Data retention.** Uninstalling leaves the app-data directory in place; Settings › Vaults › *Delete all local data* removes it after a typed confirmation.
 - **Secrets.** `secrets/` at mode 0600 (OS keychain later), never in webview storage; *Sign out* removes the credential; *Reset identity* deletes the user keypair with a warning about attribution continuity.
 
 ## 10. Testing
@@ -208,7 +277,7 @@ Tier 0 is a tiny service inside the sidecar implementing the documented conversi
 - **Sidecar:** env assembly for both modes, readiness protocol, control API auth, tier-0 converter against the contract (pdfjs fixtures), template instantiation against a fake GraphQL server.
 - **Host:** vault/config model, the wiring adapter (the contract in §5.3), sign-in state handling, settings validation.
 - **Vault package** (in `bai-knowledge-note`): origin override, host-aware boot, open-mode guard, convert setter.
-- **End-to-end (Playwright, real sidecar, empty store):** create vault → folders/singletons present → paste a source → template instantiated and enabled → with a mocked LLM endpoint the pipeline produces notes → search finds them → protect → anonymous call gets 401 → sign in with a mocked Renown session → remote vault 403 path. One desktop smoke via `tauri-driver` on Linux: launch → landing → create vault → vault app renders.
+- **End-to-end (Playwright, real sidecar, empty store):** create vault → folders/singletons present → paste a source → template instantiated and enabled → with a mocked LLM endpoint the pipeline produces notes → search finds them → protect → anonymous call gets 401 → sign in with a mocked Renown session → remote vault 403 path. Landing: first run by keyboard only (type a name, Enter, vault opens); a protected tile prompts sign-in instead of opening; the engine status strip reflects a simulated slow start. One desktop smoke via `tauri-driver` on Linux: launch → landing → create vault → vault app renders → drop a `.md` file onto intake.
 - **Performance gates (Linux CI):** boot → ready ≤ 10 s, idle RSS ≤ 1 GB on a generated ~2.5k-document vault (built once with the drive-sync upload script, cached), using the spike's measurement harness. The real store copy is never shipped to CI.
 
 ## 11. Build, packaging, CI and branching
