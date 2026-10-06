@@ -163,10 +163,12 @@ A remote vault is a `config.json` entry `{kind:"remote", name, switchboardUrl, d
     { "kind": "local",  "id": "<driveId>", "name": "My vault", "createdAt": "…" },
     { "kind": "remote", "id": "c5893e1b-…", "name": "powerhouse-knowledge", "switchboardUrl": "https://switchboard.knowledge-vault.vetra.io/graphql" }
   ],
-  "ui": { "closeToTray": true, "theme": "system" }
+  "ui": { "closeToTray": true, "theme": "dark" }
 }
 ```
 Secrets are never in this file; `models.keyRef`-style values point into `secrets/`.
+
+`ui.theme` is `dark` by default — the vault app's own default — with `light` and `system` offered in Settings. The host keeps the choice where `reactor-browser` reads it (`localStorage` key `ph:theme`, the store behind `useTheme()`/`setTheme()`), so the shell and the mounted vault app can never disagree; `index.html` applies the stored or default theme to `<html>` before first paint, so there is no white flash.
 
 ### 5.7 Landing and first-run design
 
@@ -185,10 +187,10 @@ Designed with the Six Minds audit (vision, wayfinding, memory, language, decisio
 **Concepts evaluated.** *A Minimal list* (rows + two buttons, fastest, emotionally flat) · *B Welcome page* (recent + start actions + status column; conventional, predictable, a little busy) · *C Immersive* (full-bleed graph of the last vault as hero; strong appeal, weak wayfinding, slow first paint). **Chosen: B's structure, A's single pre-focused target, C's constellation confined to the tiles.** The constellation tile is the one place boldness is spent; everything around it is disciplined.
 
 **Visual plan (tokens).**
-- *Palette:* paper `#F7F8F6` and ink `#1C2128` (light); slate `#15181D` and chalk `#E6E8EA` (dark); action ink-wash blue `#2F6F8F`; amber `#C98A1B` reserved for the protected lock and attention; ready green `#2E8B57`. Graph node colours are inherited from the vault app's graph (one per note type) so tiles and the real graph agree. Rejected as defaults: cream + terracotta, near-black + acid green, identical rounded cards with one shadow.
+- *Palette:* **the vault app's own tokens, dark by default.** The host imports the package's `style.css` and carries `data-bai-theme` on its root, so every colour the shell uses is a `var(--bai-*)` the app already defines — the landing and the vault must read as one application, and no colour may be defined in the host that the app does not define first. Dark (the default, and the app's own default) is the app's Catppuccin Mocha set: page `--bai-bg` `#1e1e2e`, panels `--bai-surface` `#181825`, depth `--bai-deep` `#11111b`, hover `--bai-hover` `#313244`, text `--bai-text` `#e4e4e7` with `--bai-text-secondary/-tertiary/-muted/-faint`, hairlines `--bai-border`, accent `--bai-accent` `#cba6f7` (focus ring, primary action, constellation nodes). Light is the app's `[data-bai-theme="light"]` set, untouched. Attention colours reuse the app's status tokens: the protected lock in `--bai-status-draft` (amber), ready in `--bai-status-canonical` (green), errors in `--bai-danger`. Graph node colours are inherited from the vault app's graph (one per note type) so tiles and the real graph agree. Rejected: a second palette for the shell (an earlier draft proposed paper/ink and slate/chalk with an ink-wash blue — dropped because the shell would have disagreed with the app it frames), cream + terracotta, near-black + acid green, identical rounded cards with one shadow.
 - *Type:* Inter for UI (continuity with the vault app) and a humanist serif (Source Serif 4) for vault names only — the one typographic moment; no all-caps labels, no eyebrows, no middle-dot meta strings (tile metadata is a sentence: "2,165 notes, opened 2 days ago").
 - *Layout:* left-aligned, content max-width 1040 px, 24 px grid; window minimum 960 × 640. Tiles vary by recency: the most recent spans two columns with a larger constellation; others are single. Remote vaults sit in the same grid with a small "remote" mark, not in a separate section.
-- *Motion:* one orchestrated moment — when the engine reports ready, each tile's constellation settles into its saved positions once (disabled under reduced motion). No hover animation on tiles; focus is a visible 2 px ring in action blue.
+- *Motion:* one orchestrated moment — when the engine reports ready, each tile's constellation settles into its saved positions once (disabled under reduced motion). No hover animation on tiles; focus is a visible 2 px ring in `--bai-accent`.
 - *Copy:* sentence case, active verbs, the same word through a flow ("New vault" → "Create vault" → toast "Vault created"). Errors say what happened and what fixes it ("The engine could not start: port 4201 is in use. Change the port in Settings › Diagnostics.").
 
 **Wireframe — returning user.**
@@ -229,7 +231,7 @@ Enter in the name field creates and opens the vault. While the engine starts, th
 
 - **File intake.** Tauri's own drag-and-drop handler is disabled (`dragDropEnabled: false`) so HTML5 drop events reach the vault app's intake; a native file picker (dialog plugin) is offered beside it.
 - **Links and files.** External links open in the system browser (opener plugin); exports and backups use native save dialogs; the clipboard is allowed for the app's copy actions.
-- **Window.** One main window, minimum 960 × 640, state (size, position, maximised) persisted; theme follows the system with an override in Settings; close-to-tray configurable (default on) so the engine keeps serving the CLI and agents.
+- **Window.** One main window, minimum 960 × 640, state (size, position, maximised) persisted; theme is dark by default (the vault app's own default) with light and system as overrides in Settings — `<html>` carries the `dark` class and `color-scheme: dark` before first paint; close-to-tray configurable (default on) so the engine keeps serving the CLI and agents.
 - **Webview parity checks** (Phase 0): WebGL for the PixiJS graph, WASM and WebSocket on WebKitGTK and WKWebView; keyboard focus visible everywhere; `prefers-reduced-motion` respected.
 
 ## 6. Document conversion tiers
