@@ -48,7 +48,6 @@ export function VaultTile({ vault, lead, opened, sample, saved, onOpen, menu, re
           <h3 className="kv-tile-name">{vault.name}</h3>
           {remote && <p className="kv-tile-remote">On {remote.host}</p>}
           <p className="kv-tile-meta">{tileSentence(vault, sample, opened)}</p>
-          {lead && <span className="kv-tile-open">Open</span>}
         </div>
       </button>
       {menu && <div className="kv-tile-menu">{menu}</div>}

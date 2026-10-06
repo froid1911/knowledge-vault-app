@@ -28,11 +28,10 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-tile:hover { border-color: var(--bai-text-muted); }
 .kv-tile-sky { flex: 1 1 auto; min-height: 0; background: var(--bai-deep); }
 .kv-constellation { display: block; width: 100%; height: 100%; }
-.kv-tile-body { flex: 0 0 auto; padding: 12px 16px 14px; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: end; border-top: 1px solid var(--bai-border); }
-.kv-tile-name { grid-column: 1; font-family: var(--kv-font-name); font-weight: 500; font-size: 22px; line-height: 1.15; letter-spacing: -0.005em; margin: 0; overflow-wrap: anywhere; }
+.kv-tile-body { flex: 0 0 auto; padding: 12px 16px 14px; display: flex; flex-direction: column; border-top: 1px solid var(--bai-border); }
+.kv-tile-name { font-family: var(--kv-font-name); font-weight: 500; font-size: 22px; line-height: 1.15; letter-spacing: -0.005em; margin: 0; overflow-wrap: anywhere; }
 .kv-tile[data-lead="true"] .kv-tile-name { font-size: 32px; }
-.kv-tile-meta { grid-column: 1; color: var(--bai-text-tertiary); font-size: 14px; margin: 4px 0 0; }
-.kv-tile-open { grid-column: 2; grid-row: 1 / span 2; align-self: end; padding: 7px 14px; border-radius: 6px; background: var(--bai-accent); color: var(--bai-accent-text); font-weight: 500; font-size: 14px; }
+.kv-tile-meta { color: var(--bai-text-tertiary); font-size: 14px; margin: 4px 0 0; }
 
 /* the constellation: real nodes carry the graph view's status colours; MoCs the accent; placeholders stay quiet */
 .kv-constellation-scene { transform-box: view-box; transform-origin: center; transform: scale(1); opacity: 1; }
@@ -200,5 +199,5 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-identity-waiting { margin: 0; font-weight: 500; }
 .kv-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .kv-link { padding: 0; border: 0; background: none; color: var(--bai-accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.kv-tile-remote { grid-column: 1; margin: 2px 0 0; color: var(--bai-text-tertiary); font-size: 13px; }
+.kv-tile-remote { margin: 2px 0 0; color: var(--bai-text-tertiary); font-size: 13px; }
 .kv-remote-check { margin: 0; color: var(--bai-text-secondary); }
