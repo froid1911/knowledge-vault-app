@@ -64,7 +64,7 @@ vault/
   read-model/       PGlite data dir (read models, graph index, embeddings, workflow runtime)
   attachments/
   backups/<date>-<stackVersion>/
-  converter/        the docling.rs binding and the PDF models (converter/models), when installed (Stage B)
+  converter/        node_modules/ (the docling.rs binding + its platform package), models/ (the PDF models), binding.json, downloads/
   secrets/          mode 0700 — app.keypair.json, user.keypair.json, user.credential.json, workflows.key, llm.key (each 0600)
   logs/             sidecar.log (rotated), shell.log
   .ph/              what the Renown SDK and the registry cache write relative to cwd (the engine runs with cwd = vault/)
@@ -255,11 +255,13 @@ Documents convert **on this computer, without Docker**. The converter is the use
 | Installed (app-data `converter/`) | Converts | Download | Memory when on |
 |---|---|---|---|
 | nothing — Stage A, shipped | pasted text, `.md`/`.txt`, **text PDFs** through the pdf.js text layer (`textSource: "pdfjs"`). A PDF without a readable text layer is refused with the remedy (`NEEDS_CONVERTER`), never an empty source; other formats answer `BINDING_REQUIRED` | 0 | ~50 MB |
-| + the `docling.rs` binding — Stage B | plus `docx`, `xlsx`, `pptx`, `csv`, `epub`, `html`, … | 56–71 MB (npm registry tarballs, integrity-checked, resumable) | ~50 MB |
-| + the PDF models — Stage B | plus scanned PDFs, images, layout and tables, OCR | ~700 MB (upstream manifest, sha256-checked, resumable) | ~0.7–1.4 GB |
+| + the `docling.rs` binding (Settings › Conversion › *Install binding*) | plus `docx`, `xlsx`, `pptx`, `csv`, `epub`, `html`, … | 56–71 MB (npm registry tarballs, integrity-checked, resumable) | ~50 MB |
+| + the PDF models (*Install models*; needs the binding, which verifies them) | plus scanned PDFs, images, layout and tables, OCR | ~700 MB (upstream manifest, sha256-checked, resumable) | ~0.7–1.4 GB |
 | another server, by URL | whatever that service does (a team's container, for example) | 0 locally | 0 |
 
-One setting — *Where documents convert*: **on this computer** (default), **another server** by URL, or **off**. Changing it points the vault package's conversion service at the new place at runtime (§7.4) — no engine restart; an in-flight conversion finishes where it started. The helper is supervised lightly: one automatic restart; then *Not responding* with the exit code and the log (`logs/converter.log`), the engine's URL cleared so `convert/health` says `configured: false`, and a *Restart* action. Settings › Conversion shows the state (*Ready · Starting · Stopped · Not responding*) and one sentence derived from the health answer's `formats`, `binding` and `ready` — never a hard-coded list — and, in Stage B, *Install / Installing n % / Installed / Remove* for the binding and the models.
+One setting — *Where documents convert*: **on this computer** (default), **another server** by URL, or **off**. Changing it points the vault package's conversion service at the new place at runtime (§7.4) — no engine restart; an in-flight conversion finishes where it started. The helper is supervised lightly: one automatic restart; then *Not responding* with the exit code and the log (`logs/converter.log`), the engine's URL cleared so `convert/health` says `configured: false`, and a *Restart* action. Settings › Conversion shows the state (*Ready · Starting · Stopped · Not responding*) and one sentence derived from the health answer's `formats`, `binding` and `ready` — never a hard-coded list — and, under *Components*, *Install · Installing n % · Installed · Remove* for the binding and the models — one install at a time, resumable and checksum-verified, the helper restarted afterwards so it loads what arrived.
+
+The models come from the binding's own version: upstream's download script pinned by tag (`v1.58.0`) and sha256 — the `master` script follows the newest binding and dropped pdfium, which 1.5x bindings still need. Memory with the models loaded measured 1.4 GB after the first PDF; *Off* or *Remove* frees it. The models fetch needs `sh`, `curl` and `tar` (Windows gets its own path with its binding).
 
 **macOS:** `docling.rs` publishes no darwin binding — upstream omits it only for lack of macOS runners, not for a technical reason — so Plan 6 builds it on the Mac runners and hosts it with our releases. Until then macOS has the first row and *another server*.
 
@@ -338,6 +340,6 @@ The 1 GB snapshot holds ~660 MB of real data (keyframes 319 MB, operations 131 M
 1. Vault creation and first run; landing; identity via the system-browser flow; protection switch (§7.3).
 2. Pipeline: template export (§7.5), instantiation, Models settings, Workflow Studio mount.
 3. Remote vaults.
-4. Conversion without Docker (§6, §7.3–7.4): Stage A — the service's no-binding mode, the open-mode guard, the runtime conversion service, the helper and Settings › Conversion (landed 2026-10-06); Stage B — installable binding and models; the darwin binding in Plan 6.
+4. Conversion without Docker (§6, §7.3–7.4): Stage A — the service's no-binding mode, the open-mode guard, the runtime conversion service, the helper and Settings › Conversion (landed 2026-10-06); Stage B — the binding and the models installable from Settings (landed 2026-10-06); the darwin binding in Plan 6.
 5. Resilience: supervisor, backups, upgrade guard, diagnostics, tray.
 6. Packaging, CI, e2e and performance gates; macOS builds.

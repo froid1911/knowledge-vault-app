@@ -7,7 +7,7 @@
 | `2026-10-06-phase1-vaults-identity.md` | 1 — sign-in, protection switch, identity in Settings (the landing and Settings shell exist since 1-lite) | full TDD steps |
 | `2026-10-06-phase2-pipeline.md` | 2 — pipeline template, models, Workflow Studio | full TDD steps |
 | `2026-10-06-phase3-remote-vaults.md` | 3 — remote vaults in client mode, host-provided bearer | outline (expand before execution) |
-| `2026-10-06-phase4-conversion.md` | 4 — conversion without Docker: the docling service as the in-app helper; Stage A (no-binding mode, open-mode guard, runtime URL, helper, Settings) landed; Stage B (installable binding and models) outlined | Stage A done |
+| `2026-10-06-phase4-conversion.md` | 4 — conversion without Docker: the docling service as the in-app helper; Stage A (no-binding mode, open-mode guard, runtime URL, helper, Settings) and Stage B (binding and models installable from Settings) landed | done; darwin binding in Plan 6 |
 | `2026-10-06-phase5-resilience.md` | 5 — supervisor, backups, upgrades, tray, diagnostics | outline |
 | `2026-10-06-phase6-packaging-ci.md` | 6 — installers, CI, perf gates, icon | outline |
 

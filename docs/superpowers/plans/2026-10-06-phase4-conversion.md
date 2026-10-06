@@ -60,13 +60,30 @@
 - [ ] Spec: §6 rewritten (no Docker; the service as the helper; three install states), §7.3/§7.4 as built, §5.2 Settings list, §13 darwin row, §14 phase 4 text; plans README; ledger entries; this plan's Status.
 - [ ] Gates: `cargo clippy/test`, `bun run tsc/test/stack:check/e2e`. Commit `docs: conversion as built (Stage A)`.
 
-## Stage B — outline (expand when Stage A has landed)
-- **Binding installer** (`sidecar/src/converter/install-binding.ts`): registry metadata for `docling.rs@<pinned>` and its platform package → tarball URLs + `dist.integrity`; download with `Range` resume into `<dataDir>/converter/downloads/`, verify sha512, extract into `<dataDir>/converter/node_modules/{docling.rs,docling.rs-<platform>}`; `sharp` the same way (its platform packages); manifest `converter/manifest.json`.
-- **Models installer:** run the vendored `fetch-models.mjs` with `DOCLING_RS_HOME=<dataDir>/converter/models` as a child, parse its progress; it already verifies size + sha256 against upstream's manifest.
-- **Loader hook** `sidecar/converter/resolve-hooks.mjs` (`module.register`, like `nodefs-hooks.mjs`): bare `docling.rs` / `sharp` → the install dir when present.
-- **Control/UI:** `GET /converter` gains `installed: { binding, models }`, `POST /converter/install {component}`, `GET /converter/progress`, `POST /converter/remove`; Settings shows the two components with *Install (n MB) · Installing n % · Installed · Remove*; the state sentence grows accordingly.
-- **Platform gate:** linux-x64/arm64 and win32-x64 offer the binding; darwin shows *The converter for macOS is coming — text PDFs, Markdown and plain text work now* until Plan 6 builds the darwin binding on the Mac runners and hosts it with our releases.
-- **Memory:** *Off* and *Remove* free it; health reports `modelsLoaded`.
+## Stage B — installable binding and models (expanded 2026-10-06, after Stage A landed)
+
+**Facts that fix the design.** The binding's `native.js` resolves its platform package by a plain `require("docling.rs-<triple>")` after looking for a local `.node` file, so installing `docling.rs` and `docling.rs-<triple>` side by side under `<dataDir>/converter/node_modules/` needs no hook for the platform package; only the vendored service's `import("docling.rs")` needs one (a `module.registerHooks` resolve hook, `--import`ed into the helper, mapping the bare name to the install dir). The service pins `docling.rs ^1.55` and is tested against **1.58.0**; the installer pins that version (one constant) and reads tarball URL + `dist.integrity` from the npm registry for it. Upstream's model script needs `curl`, `sh` and `tar`, prints `  > <file>` / `  = <file> (already present)` per asset, and is fetched unpinned from `master` — the sidecar pins its sha256 (`DOCLING_DOWNLOAD_SCRIPT_SHA256`, which `fetch-models.mjs` honours) and fails closed when it changes. Models resolve from `DOCLING_RS_HOME=<dataDir>/converter/models` (the script writes `.models/` under it). `sharp` (figure crops) is not installed in Stage B; the service runs without it.
+
+### Task B0 — `textSource: "text"` for passthrough (docling + package)
+- [ ] Service: the binding-less `md`/`txt` answer carries `textSource: "text"`; test asserts it. Package: the `textSource` unions (`lib/service.ts`, `intake-model.ts`) gain `"text"`; the convert route stops defaulting a missing value to `"docling"` where it does. Commit in both repos.
+
+### Task B1 — sidecar: binding installer (pure core + fake registry tests)
+- [ ] Tests (`sidecar/src/converter/install.test.ts`): a fake registry + tarball server (`http.createServer`, honours `Range`, can drop the connection once at 60 %); a tarball built in-test with `tar -czf` from `package/{index.js,package.json}`; `installBinding({ registry, version, platform, dir })` downloads both tarballs to `downloads/*.part` with resume, verifies sha512 against `dist.integrity`, extracts with `tar -xzf --strip-components=1`, writes `binding.json { version, platform, installedAt, bytes }`; an integrity mismatch removes the file and fails; progress callbacks carry `{ phase, bytes, total, file }`.
+- [ ] `platformTriple()` → `linux-x64-gnu | linux-arm64-gnu | win32-x64-msvc | null` (darwin and musl → null, with the reason).
+- [ ] Implement `sidecar/src/converter/install.ts`, `platform.ts`. Commit `feat(sidecar): install the docling.rs binding — resumable, integrity-checked`.
+
+### Task B2 — sidecar: resolve hook, models installer, manager and control
+- [ ] `sidecar/src/converter-hooks.mjs` (`registerHooks` resolve: bare `docling.rs`/`sharp` → `$CONVERTER_MODULES_DIR/<name>/index.js` when present); test spawns node `--import` it with a fake `docling.rs` in a temp dir and imports.
+- [ ] `installModels()` runs the vendored `fetch-models.mjs` as a child (`DOCLING_RS_HOME`, the script sha pin, the hook), parses its lines into progress (current file, bytes on disk), requires the binding first; `modelsInstalled()` = `.models/layout_heron.onnx` present.
+- [ ] Manager: one install job at a time (`job: { component, phase, percent, bytes, total, message, error }`), `installed: { binding: { installed, version, supported, platform }, models: { installed } }` in status, restart the helper after a binding install (its probe is once-per-process), `remove(component)`; the helper is spawned with `--import converter-hooks.mjs` and `CONVERTER_MODULES_DIR`.
+- [ ] Control: `POST /converter/install { component }` → 202, `POST /converter/remove { component }`; `GET /converter` carries `installed` and `job`. Tests. Commit `feat(sidecar): install and remove the converter's binding and models`.
+
+### Task B3 — host: Settings › Conversion components
+- [ ] Two rows under the status card — *Converter binding* (Word, slides, spreadsheets …, 71 MB) and *PDF models* (scanned PDFs, images, OCR, ~700 MB; needs the binding) — each *Install · Installing n % · Installed · Remove*; polling every 1.5 s while a job runs; the unsupported-platform sentence on macOS. Tests. Commit `feat(host): install the converter's binding and models from Settings`.
+
+### Task B4 — live run, e2e, docs
+- [ ] Live on this machine: install the binding from npm (71 MB) → the helper restarts with `binding: true` and Office formats listed; models (~700 MB) when the user agrees; remove → back to the binding-less sentence.
+- [ ] e2e: the rows render with the right states against a fake-registry-free path (install itself is covered by unit tests; the e2e asserts the UI and the status fields). Spec §6 status column, ledger, plan status. Commit `docs: conversion Stage B as built`.
 
 ## Done when (Stage A)
 - A fresh app: Settings › Conversion says *Ready — reads text PDFs, Markdown and plain text* with nothing downloaded; a text PDF dropped on intake becomes sections (`textSource: "pdfjs"`); a `.docx` answers with the remedy, not an empty source.
@@ -75,4 +92,4 @@
 - All gates and `bun run e2e` pass; spec and ledger describe what was built.
 
 ## Status
-Stage A: Tasks 1–5 landed 2026-10-06 (docling 2cfa01e; package 40d996d8, 2e32f22f; desktop 2eb4915, 5c97eae); Task 6 (e2e, docs, ledger) landed the same day — Stage A complete; Stage B next. Ledger: docs/superpowers/ledgers/2026-10-06-phase4-conversion.md.
+Stage A: Tasks 1–5 landed 2026-10-06 (docling 2cfa01e; package 40d996d8, 2e32f22f; desktop 2eb4915, 5c97eae); Task 6 (e2e, docs, ledger) landed the same day — Stage A complete. Stage B (B0–B4) landed the same evening — complete; the darwin binding and the Windows models path belong to Plan 6. Ledger: docs/superpowers/ledgers/2026-10-06-phase4-conversion.md.
