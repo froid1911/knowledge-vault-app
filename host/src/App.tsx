@@ -7,6 +7,7 @@ import * as workflow from "@powerhousedao/workflow";
 import type { DocumentModelLib } from "document-model";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useIdentity } from "./state/use-identity.js";
+import { useReturnHomeAfterSignIn } from "./state/return-home-after-sign-in.js";
 import { fetchRemoteVaults, type RemoteVault } from "./api/remote.js";
 import { declareDesktopHost } from "./bootstrap.js";
 import { Landing } from "./screens/Landing.js";
@@ -42,6 +43,8 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
     () => (identity.status?.authenticated && identity.status.address ? { address: identity.status.address, ...(identity.status.did ? { did: identity.status.did } : {}) } : undefined),
     [identity.status?.authenticated, identity.status?.address, identity.status?.did],
   );
+  // A sign-in completed on Settings › Identity: back to the landing.
+  useReturnHomeAfterSignIn(identity.status?.authenticated, route.name === "settings" && route.section === "identity", toVaults);
   // Coming back to a shell screen re-reads the sign-in state (a flow may have completed meanwhile).
   useEffect(() => {
     if (!inWorkspace) void identity.refresh();
