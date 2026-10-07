@@ -8,7 +8,7 @@
 | `2026-10-06-phase2-pipeline.md` | 2 — pipeline template, models, Workflow Studio | done 2026-10-07 (vault package d1b2fb59; desktop 3b33fa4..2e5c46f + the review's fixes; ledger in `ledgers/`; one manual check outstanding: a real-key run producing notes) |
 | `2026-10-06-phase3-remote-vaults.md` | 3 — remote vaults in client mode, host-provided bearer | landed through Plan 1-lite (check → add → open as the user; 401/403/404 reasons; vault package 4bc48842); the offline banner and the too-old-server probe moved to Plan 5 Task 5 |
 | `2026-10-06-phase4-conversion.md` | 4 — conversion without Docker: the docling service as the in-app helper; Stage A (no-binding mode, open-mode guard, runtime URL, helper, Settings) and Stage B (binding and models installable from Settings) landed | done; darwin binding in Plan 6 |
-| `2026-10-06-phase5-resilience.md` | 5 — supervisor, backups, upgrades, tray, diagnostics, export, remote offline/too-old | full TDD steps (expanded 2026-10-07) |
+| `2026-10-06-phase5-resilience.md` | 5 — supervisor, backups, upgrades, tray, diagnostics, export, remote offline/too-old | done 2026-10-07 (62e97d3..dd4a299 + the review's fixes d590c81, 4f641f1, 8cf242c; vault package 568069fb; ledger in `ledgers/`; manual checks in `e2e/MANUAL.md` outstanding) |
 | `2026-10-06-phase6-packaging-ci.md` | 6 — installers, CI, perf gates, icon | outline |
 
 Outline plans fix interfaces, contracts, review-focus inputs and the tests that pin them; they are expanded into
