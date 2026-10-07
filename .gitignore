@@ -30,3 +30,7 @@ spike/node_modules
 sidecar/.ph/
 test-results/
 playwright-report/
+
+# Plan 6: build artefacts
+.stage/
+src-tauri/binaries/
