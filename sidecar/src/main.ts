@@ -14,7 +14,8 @@ import { switchboardOptions } from "./options.js";
 import { readyLine, restartLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
 import { singleFlight } from "./single-flight.js";
-import { readLocalProtection, readSettings, SettingsError, writeLocalProtection, writeSettings } from "./settings.js";
+import { readSettings, writeSettings } from "./settings.js";
+import { createProtectionSwitch } from "./protection.js";
 import { authorizedFetch, createEngineTokenProvider } from "./authorized-fetch.js";
 import { ensureKyselyMigrationTables } from "./auth-tables.js";
 import { createVaultDrive, deleteVaultDrive, ensureWorkflowsDrive, listVaultDrives, renameVaultDrive } from "./vaults.js";
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
   // a listen() for its port that names no host is bound to loopback (see loopback.ts).
   bindLoopbackOnly(cfg.port);
   const { startSwitchboard } = await import("@powerhousedao/switchboard/server");
-  const options = switchboardOptions(cfg, configFile, PACKAGE_DIRS);
+  const options = switchboardOptions(cfg, configFile, PACKAGE_DIRS, renownUrl);
   const switchboard = await startSwitchboard(options);
   // The SDK writes the keypair world-readable; it is a secret.
   if (existsSync(options.identity.keypairPath)) chmodSync(options.identity.keypairPath, 0o600);
@@ -134,28 +135,19 @@ async function main(): Promise<void> {
     // and prints a restart line — whoever spawned it (the shell, the dev loop) starts it again with
     // KV_PROTECTED/KV_ADMIN_ADDRESS read from that section. The Switchboard's auth flags are fixed at
     // start-up, so there is no in-process way to flip them.
-    protection: {
-      get: () => readLocalProtection(cfg.dataDir),
-      set: async (wanted) => {
-        const current = readLocalProtection(cfg.dataDir);
-        let adminAddress = current.adminAddress;
-        if (wanted) {
-          const who = await identity.status();
-          if (!who.authenticated || !who.address) throw new SettingsError("Sign in first — protection makes your Renown identity the vaults' administrator.");
-          adminAddress = who.address;
-        }
-        const written = writeLocalProtection(cfg.dataDir, { protected: wanted, adminAddress });
-        const restarting = written.protected !== cfg.protected || (wanted && adminAddress !== cfg.adminAddress);
-        if (restarting) {
-          // After the 202 has gone out.
-          setTimeout(() => {
-            process.stdout.write(restartLine("protection") + "\n");
-            process.kill(process.pid, "SIGINT");
-          }, 200).unref();
-        }
-        return { ...written, restarting };
+    protection: createProtectionSwitch({
+      dataDir: cfg.dataDir,
+      running: { protected: cfg.protected, adminAddress: cfg.adminAddress ?? null },
+      identity: { status: () => identity.status() },
+      // After the 202 has gone out: announce the restart and shut down; whoever spawned us
+      // starts us again with KV_PROTECTED/KV_ADMIN_ADDRESS read from config.json's local section.
+      scheduleRestart: () => {
+        setTimeout(() => {
+          process.stdout.write(restartLine("protection") + "\n");
+          process.kill(process.pid, "SIGINT");
+        }, 200).unref();
       },
-    },
+    }),
     converter: {
       status: () => converter.status(),
       restart: () => converter.restart(),

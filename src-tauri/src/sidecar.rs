@@ -32,17 +32,20 @@ pub struct SidecarState {
     pub spawn: Option<SpawnParams>,
     /// The engine printed a restart line (the protection switch): its exit is a respawn, not a stop.
     pub restart_requested: bool,
+    /// The shell is stopping the engine (window closed, app quitting): no exit is ever respawned.
+    pub stopping: bool,
 }
 
-/// What an exit means: a requested restart is respawned; anything else is reported as exited.
+/// What an exit means: a requested restart is respawned — unless the shell is stopping the engine
+/// (the window closed between the restart line and the exit); anything else is reported as exited.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExitAction {
     Respawn,
     Exited,
 }
 
-pub fn exit_action(restart_requested: bool) -> ExitAction {
-    if restart_requested {
+pub fn exit_action(restart_requested: bool, stopping: bool) -> ExitAction {
+    if restart_requested && !stopping {
         ExitAction::Respawn
     } else {
         ExitAction::Exited
@@ -228,7 +231,7 @@ pub fn spawn_sidecar(
                         st.child = None;
                         st.running = false;
                         st.exit_code = payload.code;
-                        let action = exit_action(st.restart_requested);
+                        let action = exit_action(st.restart_requested, st.stopping);
                         st.restart_requested = false;
                         (action, st.spawn.clone())
                     };
@@ -264,12 +267,12 @@ pub fn keep_waiting(running: bool, polls: u32) -> bool {
 /// child to terminate, then kill whatever is left. Keyed on the child's life, not on readiness — a sidecar
 /// still booting (first-run initdb, the moment a kill hurts most) gets the same grace period.
 pub fn stop_sidecar(app: &AppHandle) {
-    let child = app
-        .state::<Mutex<SidecarState>>()
-        .lock()
-        .unwrap()
-        .child
-        .take();
+    let child = {
+        let state = app.state::<Mutex<SidecarState>>();
+        let mut st = state.lock().unwrap();
+        st.stopping = true; // an exit from here on is a stop, never a respawn
+        st.child.take()
+    };
     if let Some(mut child) = child {
         let _ = child.write(b"stop\n");
         let mut polls = 0;
@@ -412,7 +415,10 @@ mod tests {
             r#"{"event":"ready","port":4201,"controlPort":4202}"#
         ));
         assert!(!parse_restart_line("[sidecar] restarting the converter"));
-        assert_eq!(exit_action(true), ExitAction::Respawn);
-        assert_eq!(exit_action(false), ExitAction::Exited);
+        assert_eq!(exit_action(true, false), ExitAction::Respawn);
+        assert_eq!(exit_action(false, false), ExitAction::Exited);
+        // Closing the window while the engine restarts for the switch: the exit is a stop, never a respawn.
+        assert_eq!(exit_action(true, true), ExitAction::Exited);
+        assert_eq!(exit_action(false, true), ExitAction::Exited);
     }
 }

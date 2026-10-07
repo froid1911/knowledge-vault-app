@@ -30,3 +30,10 @@ describe("createEngineTokenProvider", () => {
     expect(await provider()).toBeUndefined();
   });
 });
+
+describe("createEngineTokenProvider — expiry", () => {
+  it("hands out nothing when the sign-in expired (the engine then answers 401 and the gate explains)", async () => {
+    const provider = createEngineTokenProvider({ token: async () => { throw new Error("Your sign-in expired. Sign in again."); } });
+    expect(await provider()).toBeUndefined();
+  });
+});

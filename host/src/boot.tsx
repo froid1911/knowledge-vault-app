@@ -1,5 +1,5 @@
 import { initTheme, useTheme, type GraphQLReactorClient } from "@powerhousedao/reactor-browser";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import { declareDesktopHost } from "./bootstrap.js";
 import { installExternalLinksForTauri } from "./links.js";
 import { localHostExtras } from "./local-engine.js";
@@ -34,10 +34,6 @@ export const loadApp: AppLoader = (info) => {
   })();
   return loading;
 };
-/** After the engine restarted (the protection switch) the app is loaded again for the engine it now is. */
-export function forgetLoadedApp(): void {
-  loading = undefined;
-}
 
 /**
  * The stored theme (reactor-browser's `ph:theme`, dark by default — written by
@@ -64,19 +60,35 @@ function EngineScreen({ title, detail, kind }: { title: string; detail: string; 
 }
 
 /** First thing on screen: the engine's state, then the vault app once the engine is ready. */
-export function Boot({ watch = watchSidecar, load = loadApp }: { watch?: StatusWatcher; load?: AppLoader }) {
+export function Boot({
+  watch = watchSidecar,
+  load = loadApp,
+  onEngineRestarted = () => window.location.reload(),
+}: {
+  watch?: StatusWatcher;
+  load?: AppLoader;
+  /** The engine came back after a restart (the protection switch): the whole app is re-booted for the engine it now is — one path, shell and browser alike (spec §4.4). */
+  onEngineRestarted?: () => void;
+}) {
   useThemeRoot();
   useEffect(() => installExternalLinksForTauri(), []);
   const [status, setStatus] = useState<SidecarStatus>({ state: "starting" });
   const [app, setApp] = useState<LoadedApp | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => watch(setStatus), [watch]);
-  // The engine left "ready" (it restarts for the protection switch): the loaded app belongs to the old engine.
+  // A reload only on a real transition back to "ready" after the engine had been ready once
+  // (never on a re-render while ready — the default callback is a fresh function each render).
+  const previous = useRef<SidecarStatus["state"] | null>(null);
+  const everReady = useRef(false);
+  const restarted = useRef(onEngineRestarted);
+  restarted.current = onEngineRestarted;
   useEffect(() => {
-    if (status.state === "ready" || !app) return;
-    forgetLoadedApp();
-    setApp(null);
-  }, [status.state, app]);
+    const was = previous.current;
+    previous.current = status.state;
+    if (status.state !== "ready") return;
+    if (was !== null && was !== "ready" && everReady.current) restarted.current();
+    everReady.current = true;
+  }, [status.state]);
   useEffect(() => {
     if (status.state !== "ready" || app) return;
     let alive = true;

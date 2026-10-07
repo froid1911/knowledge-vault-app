@@ -30,7 +30,8 @@ export function createEngineTokenProvider(
       return cached.token;
     } catch (error) {
       cached = undefined;
-      if (/not authenticated/i.test(error instanceof Error ? error.message : String(error))) return undefined;
+      // Not signed in, or the credential expired: no header — the engine answers 401 and the gate explains.
+      if (/not authenticated|expired/i.test(error instanceof Error ? error.message : String(error))) return undefined;
       throw error;
     }
   };

@@ -5,11 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 import { createIdentity, type IdentityDeps, type LoginOptions } from "./identity.js";
 
 /** A fake SDK: `complete()` ends the pending browser flow as a success; the signal aborts it. */
-function fakeSdk(initial = { authenticated: false }) {
-  const state = { authenticated: initial.authenticated, address: undefined as string | undefined, logins: 0 };
+function fakeSdk(initial: { authenticated: boolean; address?: string; expiresAt?: string } = { authenticated: false }) {
+  const state = { authenticated: initial.authenticated, address: initial.address, logins: 0 };
   let finish: ((v: unknown) => void) | undefined;
   const deps: IdentityDeps = {
-    build: async () => ({ logout: async () => { state.authenticated = false; state.address = undefined; } }),
+    build: async () => ({
+      logout: async () => { state.authenticated = false; state.address = undefined; },
+      // the SDK's user: present with its W3C credential while signed in
+      get user() { return state.authenticated ? { credential: { expirationDate: initial.expiresAt ?? new Date(Date.now() + 86_400_000).toISOString() } } : undefined; },
+    }),
     getAuthStatus: () => ({ authenticated: state.authenticated, address: state.address, userDid: state.address ? `did:pkh:eip155:1:${state.address}` : undefined, cliDid: "did:key:z6Mk-app", authenticatedAt: state.authenticated ? new Date("2026-10-06T10:00:00Z") : undefined, baseUrl: "https://www.renown.id" }),
     browserLogin: vi.fn((_r, options: LoginOptions) => {
       state.logins++;
@@ -63,5 +67,22 @@ describe("identity", () => {
     await id.startLogin();
     expect(sdk.state.logins).toBe(2);
     expect((await id.status()).lastError).toBeUndefined();
+  });
+});
+
+describe("identity — an expired credential", () => {
+  it("reads as signed out with `expired`, refuses tokens with the sentence, and lets the user sign in again", async () => {
+    const sdk = fakeSdk({ authenticated: true, address: "0xabc", expiresAt: "2026-09-30T00:00:00.000Z" });
+    const id = createIdentity(sdk.deps, { renownUrl: "https://www.renown.id", secretsDir: secretsDir() });
+    expect(await id.status()).toMatchObject({ authenticated: false, expired: true, address: "0xabc" });
+    await expect(id.token()).rejects.toThrow("Your sign-in expired. Sign in again.");
+    const started = await id.startLogin();
+    expect(started.alreadyAuthenticated).toBe(false);
+    expect(sdk.state.logins).toBe(1);
+  });
+  it("a credential still valid is not expired", async () => {
+    const sdk = fakeSdk({ authenticated: true, address: "0xabc" });
+    const id = createIdentity(sdk.deps, { renownUrl: "https://www.renown.id", secretsDir: secretsDir() });
+    expect(await id.status()).toMatchObject({ authenticated: true, expired: false });
   });
 });

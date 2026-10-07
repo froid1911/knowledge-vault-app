@@ -14,6 +14,8 @@ export type IdentityStatus = {
   did?: string;
   /** The engine's own key, which the credential delegates to. */
   appDid: string;
+  /** The credential is past its expirationDate: signed out for every purpose until the user signs in again. */
+  expired: boolean;
   authenticatedAt?: string;
   renownUrl: string;
   /** A sign-in in progress: the URL to show if the browser did not open. */
@@ -22,7 +24,15 @@ export type IdentityStatus = {
 };
 export type AccessToken = { token: string; expiresAt: string; address: string; did: string };
 
-type RenownLike = { logout(): Promise<void> };
+/** The SDK instance: `user.credential` is the W3C credential the sign-in delegated to the keypair; it expires. */
+type RenownLike = { logout(): Promise<void>; user?: { credential?: { expirationDate?: string } } };
+export const EXPIRED_MESSAGE = "Your sign-in expired. Sign in again.";
+function isExpired(renown: RenownLike, now: () => number = Date.now): boolean {
+  const exp = renown.user?.credential?.expirationDate;
+  if (!exp) return false;
+  const at = Date.parse(exp);
+  return Number.isFinite(at) && at <= now();
+}
 export type LoginOptions = {
   renownUrl: string;
   timeoutMs?: number;
@@ -83,10 +93,13 @@ export function createIdentity(deps: IdentityDeps, opts: { renownUrl: string; se
 
   return {
     async status(): Promise<IdentityStatus> {
-      const s = deps.getAuthStatus(await get());
+      const r = await get();
+      const s = deps.getAuthStatus(r);
+      const expired = s.authenticated && isExpired(r);
       tighten();
       return {
-        authenticated: s.authenticated,
+        authenticated: s.authenticated && !expired,
+        expired,
         address: s.address,
         did: s.userDid,
         appDid: s.cliDid,
@@ -100,7 +113,7 @@ export function createIdentity(deps: IdentityDeps, opts: { renownUrl: string; se
     /** Starts the browser flow (idempotent while one is pending) and returns the login URL as soon as it is known. */
     async startLogin(): Promise<{ url?: string; alreadyAuthenticated: boolean }> {
       const r = await get();
-      if (deps.getAuthStatus(r).authenticated) return { alreadyAuthenticated: true };
+      if (deps.getAuthStatus(r).authenticated && !isExpired(r)) return { alreadyAuthenticated: true };
       if (pending) return { url: await pending.urlReady, alreadyAuthenticated: false };
       const controller = new AbortController();
       let resolveUrl!: (url: string | undefined) => void;
@@ -143,7 +156,9 @@ export function createIdentity(deps: IdentityDeps, opts: { renownUrl: string; se
 
     /** A bearer for a Switchboard, minted locally; no audience (a verifier rejects an audience it was not configured for). */
     async token(expiresIn = 3600): Promise<AccessToken> {
-      const t = await deps.generateAccessToken(await get(), { expiresIn });
+      const r = await get();
+      if (isExpired(r)) throw new Error(EXPIRED_MESSAGE);
+      const t = await deps.generateAccessToken(r, { expiresIn });
       return { token: t.token, expiresAt: new Date(Date.now() + t.expiresIn * 1000).toISOString(), address: t.address, did: t.did };
     },
   };

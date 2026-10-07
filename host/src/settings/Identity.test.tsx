@@ -35,3 +35,18 @@ describe("IdentitySection", () => {
     expect(await screen.findByRole("button", { name: "Sign in with Renown" })).toBeTruthy();
   });
 });
+
+describe("IdentitySection — an expired sign-in", () => {
+  it("says so and offers to sign in again", async () => {
+    const api: IdentityApi = {
+      fetchAuthStatus: vi.fn(async () => ({ authenticated: false, expired: true, address: "0xAbC0000000000000000000000000000000001234", appDid: "did:key:z6Mk-app", renownUrl: "https://www.renown.id", pending: null })),
+      startLogin: vi.fn(async () => ({ url: "https://www.renown.id/#/login?session=abc", alreadyAuthenticated: false })),
+      cancelLogin: vi.fn(async () => ({})),
+      logout: vi.fn(async () => ({})),
+    };
+    render(<Harness api={api} />);
+    expect(await screen.findByText(/Your sign-in expired/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(api.startLogin).toHaveBeenCalled());
+  });
+});

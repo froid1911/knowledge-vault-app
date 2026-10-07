@@ -75,6 +75,9 @@ function ProtectionCard({ info, api, identity, pollMs, onRestarted }: { info: Si
   }
 
   const canProtect = signedIn;
+  // Opening protected vaults again is the administrator's call (spec §4.4).
+  const admin = protection?.adminAddress ?? "";
+  const canOpen = signedIn && !!admin && (identity.status?.address ?? "").toLowerCase() === admin.toLowerCase();
   return (
     <section className="kv-identity-card" aria-labelledby="kv-protection-title">
       <h2 id="kv-protection-title" className="kv-settings-subtitle">Protection</h2>
@@ -89,10 +92,11 @@ function ProtectionCard({ info, api, identity, pollMs, onRestarted }: { info: Si
             <p className="kv-settings-lead">Local vaults are open: the engine answers anyone using this computer, and changes carry the app's own key. Protecting them makes your Renown identity their administrator.</p>
           )}
           <div className="kv-form-actions">
-            <button type="button" className="kv-button" disabled={!protection.protected && !canProtect} onClick={() => void toggle()}>
+            <button type="button" className="kv-button" disabled={protection.protected ? !canOpen : !canProtect} onClick={() => void toggle()}>
               {protection.protected ? "Open local vaults" : "Protect local vaults"}
             </button>
             {!protection.protected && !canProtect && <span className="kv-hint">Sign in first — protection makes your Renown identity the vaults' administrator.</span>}
+            {protection.protected && !canOpen && <span className="kv-hint">Sign in as the administrator ({shortAddress(admin)}) to open the vaults again.</span>}
           </div>
         </>
       )}

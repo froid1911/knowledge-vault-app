@@ -7,6 +7,8 @@ export type IdentityStatus = {
   address?: string;
   did?: string;
   appDid: string;
+  /** The credential is past its expiry: signed out until the user signs in again. */
+  expired?: boolean;
   authenticatedAt?: string;
   renownUrl: string;
   pending: { url?: string; startedAt: string } | null;

@@ -17,7 +17,8 @@ const converterStatus = { mode: "local" as const, state: "ready" as const, url: 
 let installed: string[] = [];
 let protection: { protected: boolean; adminAddress: string | null } = { protected: false, adminAddress: null };
 let restartsRequested = 0;
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
+let expired = false;
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
 
 async function start() {
   const server = createControlServer({
@@ -34,7 +35,7 @@ async function start() {
       startLogin: async () => (signedIn ? { alreadyAuthenticated: true } : { url: "https://www.renown.id/#/login?session=abc", alreadyAuthenticated: false }),
       cancelLogin: () => {},
       logout: async () => { signedIn = false; },
-      token: async () => { if (!signedIn) throw new Error("Not authenticated"); return { token: "jwt", expiresAt: "2026-10-06T13:00:00.000Z", address: "0xabc", did: "did:key:z6Mk-app" }; },
+      token: async () => { if (expired) throw new Error("Your sign-in expired. Sign in again."); if (!signedIn) throw new Error("Not authenticated"); return { token: "jwt", expiresAt: "2026-10-06T13:00:00.000Z", address: "0xabc", did: "did:key:z6Mk-app" }; },
     },
     remote: {
       list: () => remotes,
@@ -230,5 +231,15 @@ describe("local protection", () => {
     const base = await start();
     const res = await fetch(`${base}/local/protection`, { method: "PUT", headers: h, body: JSON.stringify({ protected: "yes" }) });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("identity — expiry over the control API", () => {
+  it("answers 401 with the sentence when the credential expired", async () => {
+    signedIn = true; expired = true;
+    const base = await start();
+    const res = await fetch(`${base}/auth/token`, { headers: { authorization: "Bearer secret" } });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Your sign-in expired. Sign in again." });
   });
 });

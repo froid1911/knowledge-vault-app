@@ -206,6 +206,7 @@ export function createControlServer(deps: ControlDeps) {
         } catch (error) {
           // The SDK says "Not authenticated" for a missing credential; anything else is a real failure.
           const message = error instanceof Error ? error.message : String(error);
+          if (/expired/i.test(message)) return send(res, 401, { error: message }, allowed);
           if (/not authenticated/i.test(message)) return send(res, 401, { error: "Not signed in." }, allowed);
           return send(res, 500, { error: `Could not mint a token: ${message}` }, allowed);
         }

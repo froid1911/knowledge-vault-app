@@ -57,16 +57,18 @@ describe("Boot", () => {
 });
 
 describe("Boot — the engine restarts", () => {
-  it("loads the vault app again once the engine is ready after a restart", async () => {
+  it("reloads the page once the engine is ready again after a restart — the app is re-booted for the engine it now is", async () => {
     const w = fakeWatcher();
     const load = vi.fn(async () => ({ App: () => <p>the app</p>, client: {} as never }));
-    render(<Boot watch={w.watch} load={load} />);
+    const onEngineRestarted = vi.fn();
+    render(<Boot watch={w.watch} load={load} onEngineRestarted={onEngineRestarted} />);
     w.emit({ state: "ready", info });
     await waitFor(() => expect(screen.getByText("the app")).toBeTruthy());
     w.emit({ state: "starting" });
     expect(screen.getByText("Starting the engine…")).toBeTruthy();
+    expect(onEngineRestarted).not.toHaveBeenCalled();
     w.emit({ state: "ready", info });
-    await waitFor(() => expect(screen.getByText("the app")).toBeTruthy());
-    expect(load).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(onEngineRestarted).toHaveBeenCalledTimes(1));
+    expect(load).toHaveBeenCalledTimes(1);
   });
 });

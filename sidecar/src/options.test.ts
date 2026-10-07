@@ -27,7 +27,12 @@ describe("switchboardOptions", () => {
     expect(o.workflows).toEqual({ enabled: true });
   });
   it("keeps the engine's identity keypair under the data dir's secrets, never beside the code", () => {
-    const o = switchboardOptions(cfg, "/app/sidecar/powerhouse.config.json", PACKAGE_DIRS);
-    expect(o.identity).toEqual({ keypairPath: "/tmp/Knowledge Vault äö/data/secrets/app.keypair.json" });
+    const o = switchboardOptions(cfg, "/app/sidecar/powerhouse.config.json", PACKAGE_DIRS, "https://www.renown.id");
+    expect(o.identity).toEqual({ keypairPath: "/tmp/Knowledge Vault äö/data/secrets/app.keypair.json", baseUrl: "https://www.renown.id" });
+  });
+  it("signs as the user when protected: the SDK's delegated keypair, required to exist (spec §4.4)", () => {
+    const protectedCfg = readSidecarConfig({ KV_DATA_DIR: "/data", KV_PORT: "4301", KV_CONTROL_PORT: "4302", KV_CONTROL_TOKEN: "t", KV_PROTECTED: "1", KV_ADMIN_ADDRESS: "0xabc" });
+    const o = switchboardOptions(protectedCfg, "/app/sidecar/powerhouse.config.json", PACKAGE_DIRS, "https://www.renown.id");
+    expect(o.identity).toEqual({ keypairPath: "/data/secrets/user.keypair.json", requireExisting: true, baseUrl: "https://www.renown.id" });
   });
 });

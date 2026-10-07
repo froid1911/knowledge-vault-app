@@ -62,3 +62,22 @@ describe("VaultsSection — protection", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Sign in first");
   });
 });
+
+describe("VaultsSection — opening protected vaults again", () => {
+  const protectedState = { protected: true, adminAddress: "0xabcdef0123456789" };
+  function identityAs(address?: string): IdentityController {
+    return { ...identity(!!address), status: { authenticated: !!address, address, appDid: "did:key:z", renownUrl: "https://www.renown.id", pending: null } } as unknown as IdentityController;
+  }
+  it("is only for the signed-in administrator — signed out, or another address, cannot flip it", async () => {
+    render(<VaultsSection info={info} api={api({ fetchProtection: vi.fn(async () => protectedState) })} identity={identityAs(undefined)} />);
+    const button = await screen.findByRole("button", { name: "Open local vaults" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Sign in as the administrator \(0xabcd…6789\)/)).toBeTruthy();
+    cleanup();
+    render(<VaultsSection info={info} api={api({ fetchProtection: vi.fn(async () => protectedState) })} identity={identityAs("0x9999999999999999")} />);
+    expect(((await screen.findByRole("button", { name: "Open local vaults" })) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    render(<VaultsSection info={info} api={api({ fetchProtection: vi.fn(async () => protectedState) })} identity={identityAs("0xABCDEF0123456789")} />); // same address, other case
+    expect(((await screen.findByRole("button", { name: "Open local vaults" })) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

@@ -12,6 +12,23 @@ export function IdentitySection({ identity }: { identity: IdentityController }) 
   const [copied, setCopied] = useState(false);
   if (!status) return <p className="kv-quiet" role="status">{error ? `Could not read the sign-in state: ${error}` : "…"}</p>;
 
+  if (status.expired) {
+    return (
+      <div className="kv-settings-body">
+        <p className="kv-settings-lead">Your sign-in expired. A Renown credential lasts seven days; signing in again renews it — protected vaults and connected servers need it.</p>
+        <div className="kv-identity-card">
+          {status.address && (
+            <p className="kv-hint">
+              Was signed in as <span className="kv-mono">{status.address}</span>.
+            </p>
+          )}
+          <button type="button" className="kv-button kv-button-primary" onClick={() => void signIn()}>Sign in again</button>
+          {(status.lastError || error) && <p role="alert" className="kv-error">{status.lastError ?? error}</p>}
+        </div>
+      </div>
+    );
+  }
+
   if (status.authenticated && status.address) {
     const since = status.authenticatedAt ? new Date(status.authenticatedAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : undefined;
     return (
