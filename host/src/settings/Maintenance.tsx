@@ -52,7 +52,11 @@ function useScheduled(info: SidecarInfo, api: SettingsApi, pollMs: number, onRes
           setBackups(r.backups);
           setLast(r.lastAction);
           setWaiting(null);
-          if (waiting.action !== "backup" && r.lastAction.ok) onRestarted();
+          if (waiting.action !== "backup" && r.lastAction.ok) {
+            // After a delete-all the app is at its first run: back to the front door, not Settings.
+            if (waiting.action === "delete-all") window.location.hash = "#/";
+            onRestarted();
+          }
           return;
         }
       } catch {
