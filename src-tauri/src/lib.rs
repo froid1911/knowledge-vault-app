@@ -1,9 +1,13 @@
+mod backoff;
 mod config;
+mod log_tail;
 mod navigation;
 mod sidecar;
 
 use config::{AppPaths, DEFAULT_PORTS, Ports, new_control_token, pick_free_port};
-use sidecar::{ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar};
+use sidecar::{
+    ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar, stop_sidecar_blocking,
+};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -98,7 +102,7 @@ pub fn run() {
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
-                stop_sidecar(app);
+                stop_sidecar_blocking(app);
             }
         });
 }
