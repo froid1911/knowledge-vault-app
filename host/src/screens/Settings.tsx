@@ -1,6 +1,6 @@
 import type { SidecarInfo } from "../sidecar.js";
 import { deleteVault, fetchConverter, fetchSettings, fetchStatus, fetchVaults, installConverterComponent, removeConverterComponent, renameVault, restartConverter, saveSettings, type AppSettings, type ConverterComponent, type ConverterStatus, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary, fetchProtection, setProtection, validateModels } from "../vaults.js";
-import type { LocalProtection } from "../vaults.js";
+import { exportVault, fetchBackups, fetchLogTail, requestBackup, requestDeleteAll, requestRestore, type ActionResult, type BackupInfo, type ExportResult, type LocalProtection } from "../vaults.js";
 import { AppBar } from "../shell/AppBar.js";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../shell/router.js";
 import { AboutSection } from "../settings/About.js";
@@ -27,6 +27,13 @@ export type SettingsApi = {
   restartConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
   installConverter: (info: SidecarInfo, component: ConverterComponent) => Promise<ConverterStatus>;
   removeConverter: (info: SidecarInfo, component: ConverterComponent) => Promise<ConverterStatus>;
+  /** Spec §9: maintenance — each action runs at the engine's next start. */
+  fetchBackups: (info: SidecarInfo) => Promise<{ backups: BackupInfo[]; lastAction: ActionResult | null }>;
+  requestBackup: (info: SidecarInfo) => Promise<{ restarting: boolean }>;
+  requestRestore: (info: SidecarInfo, name: string) => Promise<{ restarting: boolean }>;
+  requestDeleteAll: (info: SidecarInfo, includeBackups: boolean) => Promise<{ restarting: boolean }>;
+  exportVault: (info: SidecarInfo, id: string) => Promise<ExportResult>;
+  fetchLogTail: (info: SidecarInfo) => Promise<string[]>;
 };
 export const realSettingsApi: SettingsApi = {
   fetchProtection,
@@ -42,6 +49,12 @@ export const realSettingsApi: SettingsApi = {
   restartConverter,
   installConverter: installConverterComponent,
   removeConverter: removeConverterComponent,
+  fetchBackups,
+  requestBackup,
+  requestRestore,
+  requestDeleteAll,
+  exportVault,
+  fetchLogTail,
 };
 
 const LABELS: Record<SettingsSection, string> = {

@@ -24,16 +24,52 @@ function CopyBlock({ label, value }: { label: string; value: string }) {
 }
 
 /** The engineering view: what runs where, and how to point the CLI, the plugin and agents at this engine. */
+/** Anything after a credential-looking word goes; the copy is meant for an issue or a chat. */
+export function redact(line: string): string {
+  return line.replace(/(token|secret|key|authorization|bearer|sk-)[^\n]*/gi, "$1 […]").replace(/\bsk-[^\s]*/gi, "[…]");
+}
+
+/** What "Copy diagnostics" puts on the clipboard: versions, ports, the data folder and the redacted tail — never a credential. */
+export function diagnosticsText(status: EngineStatus, tail: string[]): string {
+  return JSON.stringify(
+    {
+      app: status.appVersion,
+      stack: status.stackVersion,
+      vaultPackage: status.vaultPackageVersion,
+      enginePort: status.port,
+      controlPort: status.controlPort,
+      protected: status.protected,
+      dataDir: status.dataDir,
+      lastLines: tail.map(redact),
+    },
+    null,
+    2,
+  );
+}
+
 export function DiagnosticsSection({ info, api }: { info: SidecarInfo; api: SettingsApi }) {
   const [status, setStatus] = useState<EngineStatus | null>(null);
+  const [tail, setTail] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     let alive = true;
     api.fetchStatus(info).then((s) => alive && setStatus(s)).catch((e: Error) => alive && setError(e.message));
+    api.fetchLogTail(info).then((lines) => alive && setTail(lines)).catch(() => {});
     return () => {
       alive = false;
     };
   }, [api, info]);
+  async function copyDiagnostics() {
+    if (!status) return;
+    try {
+      await navigator.clipboard.writeText(diagnosticsText(status, tail));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
   return (
     <div className="kv-settings-body">
       {error && <p role="alert" className="kv-error">Could not read the engine's status: {error}</p>}
@@ -50,6 +86,16 @@ export function DiagnosticsSection({ info, api }: { info: SidecarInfo; api: Sett
           <CopyBlock label="Switchboard CLI" value={`switchboard init --url ${info.origin}/graphql --name local-vault --use-profile`} />
           <CopyBlock label="MCP" value={`${info.origin}/mcp`} />
           <CopyBlock label="GraphQL" value={info.graphqlUrl} />
+          <h3 className="kv-settings-subheading">The engine's last lines</h3>
+          {tail.length === 0 ? (
+            <p className="kv-quiet">Nothing logged yet — the app records the engine's output when it runs it.</p>
+          ) : (
+            <pre className="kv-log-tail" aria-label="The engine's last lines">{tail.map(redact).join("\n")}</pre>
+          )}
+          <div className="kv-form-actions">
+            <button type="button" className="kv-button" onClick={() => void copyDiagnostics()}>{copied ? "Copied" : "Copy diagnostics"}</button>
+            <span className="kv-hint">Versions, ports, the data folder and these lines — credentials removed.</span>
+          </div>
         </>
       )}
     </div>

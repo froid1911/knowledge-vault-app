@@ -1,37 +1,66 @@
+import type { FatalInfo } from "../sidecar.js";
+
 export type EngineState =
   | { state: "starting" }
   | { state: "ready" }
-  | { state: "exited"; code: number | null }
+  | { state: "restarting"; attempt: number; delayMs: number | null }
+  | { state: "gave_up"; code: number | null; logTail: string[]; fatal: FatalInfo | null }
+  | { state: "exited"; code: number | null; fatal?: FatalInfo }
+  | { state: "stopping" }
   | { state: "failed"; detail: string };
 
-const COPY = {
-  starting: { label: "Starting the engine…", detail: "Opening your store." },
-  ready: { label: "Ready", detail: "" },
-} as const;
+/** The strip's two lines for each state (spec §9): what happened, then what to do. */
+function copy(engine: EngineState): { label: string; detail: string } {
+  switch (engine.state) {
+    case "starting":
+      return { label: "Starting the engine…", detail: "Opening your store." };
+    case "ready":
+      return { label: "Ready", detail: "" };
+    case "restarting":
+      return { label: "Restarting the engine…", detail: `It stopped unexpectedly. Attempt ${engine.attempt} of 3; back in a moment.` };
+    case "gave_up":
+      return {
+        label: "The engine keeps stopping",
+        detail: engine.fatal ? engine.fatal.message : "It stopped several times in a row. Its last lines are below; restart the app once the cause is fixed.",
+      };
+    case "exited":
+      return engine.fatal
+        ? { label: "The engine refused to start", detail: engine.fatal.message }
+        : { label: "The engine stopped", detail: `Exit code ${engine.code ?? "unknown"}. Restart the app; if it happens again, start it from a terminal to see the engine's output.` };
+    case "stopping":
+      return { label: "Stopping the engine…", detail: "Saving your store." };
+    case "failed":
+      return { label: "The app could not reach the engine", detail: `${engine.detail}. Restart the app.` };
+  }
+}
+
+const TROUBLE = new Set<EngineState["state"]>(["exited", "failed", "gave_up"]);
 
 /** The landing's bottom landmark: the engine's state, the privacy sentence, the version. */
 export function StatusStrip({ engine, version }: { engine: EngineState; version?: string }) {
-  const exited = engine.state === "exited" || engine.state === "failed";
-  const label = engine.state === "exited" ? "The engine stopped" : engine.state === "failed" ? "The app could not reach the engine" : COPY[engine.state].label;
-  const detail =
-    engine.state === "exited"
-      ? `Exit code ${engine.code ?? "unknown"}. Restart the app; if it happens again, start it from a terminal to see the engine's output.`
-      : engine.state === "failed"
-        ? `${engine.detail}. Restart the app.`
-        : COPY[engine.state].detail;
+  const trouble = TROUBLE.has(engine.state);
+  const { label, detail } = copy(engine);
+  const tail = engine.state === "gave_up" ? engine.logTail : [];
   return (
-    <footer className="kv-strip" data-state={engine.state} role={exited ? "alert" : "status"}>
+    <footer className="kv-strip" data-state={engine.state} role={trouble ? "alert" : "status"}>
       <div className="kv-strip-inner">
         <span className="kv-dot" aria-hidden="true" />
         <span className="kv-strip-state">{label}</span>
         {detail && <span className="kv-strip-detail">{detail}</span>}
-        {!exited && (
+        {!trouble && (
           <span className="kv-strip-privacy">
             Everything stays on this computer unless you connect a remote vault, a model provider or a converter.
           </span>
         )}
         {version && <span className="kv-strip-version">{version}</span>}
       </div>
+      {tail.length > 0 && (
+        <pre className="kv-strip-tail" aria-label="The engine's last lines">
+          {tail.map((line, i) => (
+            <span key={i}>{line}{"\n"}</span>
+          ))}
+        </pre>
+      )}
     </footer>
   );
 }

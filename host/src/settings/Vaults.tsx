@@ -5,6 +5,7 @@ import type { SettingsApi } from "../screens/Settings.js";
 import type { SidecarInfo } from "../sidecar.js";
 import { shortAddress, type IdentityController } from "../state/use-identity.js";
 import type { LocalProtection, VaultSummary } from "../vaults.js";
+import { MaintenanceCards } from "./Maintenance.js";
 
 const number = new Intl.NumberFormat("en-US");
 const RESTART_GRACE_MS = 90_000;
@@ -127,6 +128,20 @@ export function VaultsSection({
   const [deleting, setDeleting] = useState<VaultSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [exported, setExported] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  async function exportOne(v: VaultSummary) {
+    setExporting(v.id);
+    try {
+      const r = await api.exportVault(info, v.id);
+      setExported((prev) => ({ ...prev, [v.id]: r.path }));
+    } catch (e) {
+      setExported((prev) => ({ ...prev, [v.id]: `Export failed: ${e instanceof Error ? e.message : String(e)}` }));
+    } finally {
+      setExporting(null);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -175,8 +190,10 @@ export function VaultsSection({
               <div className="kv-settings-row-main">
                 <span className="kv-settings-row-title">{v.name}</span>
                 <span className="kv-settings-row-meta">{number.format(v.noteCount)} note{v.noteCount === 1 ? "" : "s"}</span>
+                {exported[v.id] && <span className="kv-settings-row-meta kv-mono">{exported[v.id]}</span>}
               </div>
               <div className="kv-settings-row-actions">
+                <button type="button" className="kv-button" disabled={exporting === v.id} title="Write the vault as documents (the drive-sync format) under the data folder's exports/" onClick={() => void exportOne(v)}>{exporting === v.id ? "Exporting…" : "Export"}</button>
                 <button type="button" className="kv-button" onClick={() => { setDialogError(null); setRenaming(v); }}>Rename</button>
                 <button type="button" className="kv-button kv-button-danger-quiet" onClick={() => { setDialogError(null); setDeleting(v); }}>Delete</button>
               </div>
@@ -185,6 +202,7 @@ export function VaultsSection({
         </ul>
       )}
       <ProtectionCard info={info} api={api} identity={identity} pollMs={pollMs} onRestarted={onRestarted} />
+      <MaintenanceCards info={info} api={api} pollMs={pollMs} onRestarted={onRestarted} />
       {renaming && <RenameVaultDialog name={renaming.name} busy={busy} error={dialogError} onSave={(n) => void rename(renaming, n)} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteVaultDialog name={deleting.name} noteCount={deleting.noteCount} busy={busy} error={dialogError} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
     </div>

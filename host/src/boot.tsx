@@ -102,8 +102,7 @@ export function Boot({
 
   // The landing's frame — header, "Vaults", status strip — is on screen from the first paint;
   // the engine's state lives in the strip, so nothing jumps when the vaults arrive.
-  if (status.state === "exited") return <Landing engine={{ state: "exited", code: status.code }} />;
-  if (status.state === "failed") return <Landing engine={status} />;
+  if (status.state === "exited" || status.state === "failed" || status.state === "restarting" || status.state === "gave_up" || status.state === "stopping") return <Landing engine={status} />;
   if (failure) return <EngineScreen kind="alert" title="The vault app could not load" detail={failure} />;
   if (status.state === "ready" && app) {
     const App = app.App;

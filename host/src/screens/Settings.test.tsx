@@ -47,6 +47,12 @@ function api(over: Partial<SettingsApi> = {}): SettingsApi {
       job: { component, phase: "downloading" as const, percent: 42, bytes: 42, total: 100, message: "Downloading docling.rs-linux-x64-gnu — 42 %", error: null, startedAt: "2026-10-06T00:00:00.000Z", finishedAt: null },
     })),
     removeConverter: vi.fn(async () => converterReady),
+    fetchBackups: vi.fn(async () => ({ backups: [{ name: "2026-10-07T12-00-00Z-6.2.3-dev.44", path: "/b/1", bytes: 12_000_000, stackVersion: "6.2.3-dev.44", createdAt: "2026-10-07T12:00:00.000Z" }], lastAction: { action: "backup" as const, ok: true, detail: "Backed up 12 MB as 2026-10-07T12-00-00Z-6.2.3-dev.44.", at: "2026-10-07T12:00:01.000Z" } })),
+    requestBackup: vi.fn(async () => ({ restarting: true })),
+    requestRestore: vi.fn(async () => ({ restarting: true })),
+    requestDeleteAll: vi.fn(async () => ({ restarting: true })),
+    exportVault: vi.fn(async () => ({ path: "/home/u/.local/share/kv/vault/exports/a-2026", documents: 24, bytes: 1000 })),
+    fetchLogTail: vi.fn(async () => ["[sidecar] ready", "Authorization: Bearer abc.def", "model key sk-or-123"]),
     ...over,
   };
 }
@@ -193,5 +199,61 @@ describe("Settings", () => {
     render(<Harness api={b} start="conversion" />);
     expect(await screen.findByText(/need a Unix shell/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install models" })).toBeNull();
+  });
+
+  it("backs up now, lists the backups with the last action, restores one after confirming, and says the engine restarts", async () => {
+    const a = api();
+    render(<Harness api={a} />);
+    expect(await screen.findByText("2026-10-07T12-00-00Z-6.2.3-dev.44")).toBeTruthy();
+    expect(screen.getByText(/Backed up 12 MB/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore this backup" }));
+    await waitFor(() => expect(a.requestRestore).toHaveBeenCalledWith(info, "2026-10-07T12-00-00Z-6.2.3-dev.44"));
+    expect(await screen.findByText(/Restarting the engine… the restore runs/)).toBeTruthy();
+    // while the engine restarts, nothing else can be scheduled
+    expect((screen.getByRole("button", { name: "Back up now" }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    const b = api();
+    render(<Harness api={b} />);
+    await screen.findByText("2026-10-07T12-00-00Z-6.2.3-dev.44");
+    fireEvent.click(screen.getByRole("button", { name: "Back up now" }));
+    await waitFor(() => expect(b.requestBackup).toHaveBeenCalledWith(info));
+    expect(await screen.findByText(/Restarting the engine… the backup runs/)).toBeTruthy();
+  });
+  it("exports a vault as documents and shows where it went", async () => {
+    const a = api();
+    render(<Harness api={a} />);
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    await waitFor(() => expect(a.exportVault).toHaveBeenCalledWith(info, "v1"));
+    expect(await screen.findByText("/home/u/.local/share/kv/vault/exports/a-2026")).toBeTruthy();
+  });
+  it("deletes all local data only once delete is typed, keeping the backups unless asked", async () => {
+    const a = api();
+    render(<Harness api={a} />);
+    await screen.findByText("Alpha");
+    const button = screen.getByRole("button", { name: "Delete all local data" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Type delete to confirm"), { target: { value: "delete" } });
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    await waitFor(() => expect(a.requestDeleteAll).toHaveBeenCalledWith(info, false));
+  });
+  it("shows the engine's last lines in Diagnostics and copies diagnostics without secrets", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const a = api();
+    render(<Harness api={a} start="diagnostics" />);
+    expect(await screen.findByText(/\[sidecar\] ready/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const copied = String((writeText.mock.calls[0] as unknown[])[0]);
+    expect(copied).toContain("6.2.3-dev.44");
+    expect(copied).toContain("[sidecar] ready");
+    for (const secret of ["sk-or", "Bearer", "abc.def", "token"]) expect(copied).not.toContain(secret);
+  });
+  it("says update checks are off until the app has a release feed", async () => {
+    render(<Harness api={api()} start="about" />);
+    expect(await screen.findByText("Update checks are off until the app has a release feed.")).toBeTruthy();
   });
 });

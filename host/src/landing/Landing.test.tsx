@@ -92,6 +92,23 @@ describe("Landing", () => {
     expect(a.fetchVaults).not.toHaveBeenCalled();
   });
 
+  it("names the supervisor's states in the strip: restarting with its attempt, a crash loop with the last lines, a refusal with its reason", () => {
+    const a = api();
+    const { rerender } = render(<Landing engine={{ state: "restarting", attempt: 2, delayMs: 4000 }} api={a} storage={memoryStorage()} />);
+    expect(screen.getByText("Restarting the engine…")).toBeTruthy();
+    expect(screen.getByText(/Attempt 2 of 3/)).toBeTruthy();
+    rerender(<Landing engine={{ state: "gave_up", code: 1, logTail: ["boom: the store is locked"], fatal: null }} api={a} storage={memoryStorage()} />);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.getByText("The engine keeps stopping")).toBeTruthy();
+    expect(screen.getByText("boom: the store is locked")).toBeTruthy();
+    rerender(<Landing engine={{ state: "exited", code: 78, fatal: { reason: "store-too-new", message: "This store was last opened by a newer Knowledge Vault." } }} api={a} storage={memoryStorage()} />);
+    expect(screen.getByText("The engine refused to start")).toBeTruthy();
+    expect(screen.getByText(/last opened by a newer Knowledge Vault/)).toBeTruthy();
+    rerender(<Landing engine={{ state: "stopping" }} api={a} storage={memoryStorage()} />);
+    expect(screen.getByText("Stopping the engine…")).toBeTruthy();
+    expect(a.fetchVaults).not.toHaveBeenCalled();
+  });
+
   it("renames a vault from its ⋯ menu and deletes one only after its name is typed", async () => {
     const a = api({ fetchVaults: vi.fn(async () => [{ id: "v1", slug: "a", name: "Alpha", noteCount: 3 }, { id: "v2", slug: "b", name: "Beta", noteCount: 0 }]) });
     render(<Landing engine={{ state: "ready" }} info={info} api={a} storage={memoryStorage()} />);

@@ -47,6 +47,13 @@ describe("Boot", () => {
     expect(screen.getByText(/Exit code 1/)).toBeTruthy();
   });
 
+  it("shows the supervisor restarting a crashed engine, in the landing's frame", () => {
+    const w = fakeWatcher();
+    render(<Boot watch={w.watch} load={vi.fn()} />);
+    w.emit({ state: "restarting", attempt: 1, delayMs: 1000 });
+    expect(screen.getByText("Restarting the engine…")).toBeTruthy();
+  });
+
   it("reports a vault app that failed to load", async () => {
     const w = fakeWatcher();
     render(<Boot watch={w.watch} load={vi.fn(async () => { throw new Error("chunk missing"); })} />);

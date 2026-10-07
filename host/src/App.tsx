@@ -15,6 +15,8 @@ import { useRoute } from "./shell/router.js";
 import { matchShortcut } from "./shell/shortcuts.js";
 import type { SidecarInfo } from "./sidecar.js";
 import type { TokenProvider } from "./api/identity.js";
+import { EngineBanner } from "./components/EngineBanner.js";
+import { useEngineHealth } from "./state/use-engine-health.js";
 
 /** The packages the host mounts; boot.tsx installs the reactor with their document models, once. */
 export const LIBS: readonly DocumentModelLib[] = [
@@ -30,6 +32,8 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
   const inWorkspace = route.name === "vault" || route.name === "workflows" || route.name === "remote";
   const toIdentity = useCallback(() => navigate({ name: "settings", section: "identity" }), [navigate]);
   const identity = useIdentity(info);
+  // Spec §9: a crash the supervisor is restarting shows as a banner over whatever is open.
+  const health = useEngineHealth(info);
   const hostIdentity = useMemo(
     () => (identity.status?.authenticated && identity.status.address ? { address: identity.status.address, ...(identity.status.did ? { did: identity.status.did } : {}) } : undefined),
     [identity.status?.authenticated, identity.status?.address, identity.status?.did],
@@ -95,6 +99,7 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
   }
   return (
     <RenownProvider appName="desktop-knowledge-vault" url="https://www.renown.id" switchboardUrl={info.origin}>
+      <EngineBanner health={health} />
       {screen}
     </RenownProvider>
   );

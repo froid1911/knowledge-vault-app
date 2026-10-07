@@ -251,3 +251,13 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-pipeline-chip[data-tone="action"] .kv-identity-dot { background: var(--bai-accent); }
 .kv-appbar .kv-pipeline-chip button { padding: 0 8px; font-size: 12px; line-height: 1.6; }
 @keyframes kv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Plan 5 — the engine's states, the reconnecting banner, the last lines */
+.kv-strip[data-state="restarting"] .kv-dot, .kv-strip[data-state="stopping"] .kv-dot { background: var(--bai-status-draft); }
+.kv-strip[data-state="gave_up"] .kv-dot, .kv-strip[data-state="failed"] .kv-dot { background: var(--bai-danger); }
+.kv-strip[data-state="gave_up"] .kv-strip-state, .kv-strip[data-state="failed"] .kv-strip-state { color: var(--bai-danger); }
+.kv-strip-tail, .kv-log-tail { margin: 0; padding: 10px var(--kv-gutter); max-height: 220px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; color: var(--bai-text-secondary, var(--bai-text)); background: var(--bai-bg, transparent); white-space: pre-wrap; overflow-wrap: anywhere; }
+.kv-log-tail { padding: 10px 12px; border: 1px solid var(--bai-border); border-radius: 8px; background: var(--bai-surface); }
+.kv-engine-banner { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 10px; padding: 8px var(--kv-gutter); font-size: 13px; color: var(--bai-text); background: var(--bai-surface); border-bottom: 1px solid var(--bai-border); }
+.kv-engine-banner .kv-dot { background: var(--bai-status-draft); }
+.kv-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--bai-text-secondary, var(--bai-text)); }
