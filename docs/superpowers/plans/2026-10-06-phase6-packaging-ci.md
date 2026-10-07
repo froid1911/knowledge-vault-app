@@ -1,62 +1,70 @@
-# Desktop Knowledge Vault — Phase 6 "Packaging and CI" Implementation Plan (outline — expand to bite-sized TDD steps before execution)
+# Desktop Knowledge Vault — Phase 6 "Packaging and CI" Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Interfaces, contracts and tests are fixed here; expand each task before execution.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (native) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `bun run build:app` produces the installer for the current platform; merging `dev` into `main` produces Linux `.AppImage`/`.deb` and macOS arm64/x64 `.dmg` on a GitHub Release with installer sizes and the pinned package/stack versions in the notes; every push runs the checks, e2e and the performance gates.
+**Goal:** `bun run build:app` produces an installer for this machine that starts the app with everything it needs (bundled Node, the engine, the host); the release workflow on `main` builds Linux `.AppImage`/`.deb` (on ubuntu-22.04) and macOS arm64/x64 `.dmg` with sizes and pinned versions in the notes; every push runs the checks and the e2e.
 
-**Architecture:** The shell serves `host/dist` over loopback HTTP in production (`tauri-plugin-localhost` on `hostPort`), bundles Node as a per-target external binary verified by checksum, and ships the sidecar (compiled TypeScript + production `node_modules`) and the pipeline template as resources. The Node binary runs the sidecar from the resource directory with `cwd = sidecar/`. GitHub Actions does the same steps CI-side; the perf gate boots a generated vault and asserts the spec's thresholds.
+**Expanded 2026-10-07 from the outline, after a probe** (scratchpad, recorded in the ledger):
+- A frozen, production, *hoisted* install of only the sidecar workspace works from a scratch copy of the workspace manifests + `bun.lock`: `bun install --production --frozen-lockfile --filter '@desktop-knowledge-vault/sidecar' --linker hoisted` — 1,194 packages in 4.6 s, **1.7 GB**, no dev tools (vitest, playwright, tauri CLI absent). `vite` and `typescript` are real dependencies of the stack (reactor-api, switchboard, knowledge-note) and stay.
+- A **target-aware prune** — other platforms' native binaries (`onnxruntime-node/bin/*/{darwin,win32,linux/arm64}`, per-platform packages under `@img`, `@napi-rs`, `@rolldown`, `@oxfmt`, …) plus `*.map` and `*.d.ts` — brings it to **833 MB**. Pruning *directories by name* (`test/`, `docs/`) **breaks the engine** (`viem/_esm/actions/test` is code): never do it.
+- **Node 24.21.0** (LTS, from nodejs.org, `SHASUMS256.txt` verified) runs the staged engine in a clean environment (`env -i`): ready in 13 s, vault created, converter helper ready, a Markdown file converted through the engine, graceful stop in 1 s.
+- Staged engine + Node compress to **≈ 203 MB** (zstd -9) → a Linux installer of roughly 230 MB.
+- `tauri-plugin-localhost` **2.4.0** (the Tauri 2 line) binds `host:port` with `.host("127.0.0.1")`, serves the embedded `frontendDist` (so `host/dist` is *not* a resource), and **panics if the port is taken** — the shell must pick a free port before building the app. A page loaded from `http://127.0.0.1:<port>` needs a capability with `remote.urls` to call the shell's commands.
+- This machine has glibc 2.44: a locally built AppImage runs only on equally recent Linux. Portable Linux artefacts are built on ubuntu-22.04 (CI, or `scripts/build-linux-docker.sh` locally).
 
-**Tech Stack:** Tauri 2 bundler (`externalBin`, `resources`), `tauri-plugin-localhost`, Node 24 LTS official binaries, GitHub Actions (`ubuntu-22.04`, `macos-14`, `macos-13`), Playwright, the spike's measurement harness (`spike/bin/measure.sh`, adapted).
-
-**Spec:** §11 (build, targets, branching, CI), §3.2 (host served over loopback), §12 (performance gates), §5.2 About versions. **Prerequisites:** Plans 0–5.
+**Spec:** §11, §3.2, §12, §5.2. **Prerequisites:** Plans 0–5 (done); `@powerhousedao/knowledge-note` published (1.0.54-dev.24, pinned).
 
 ## Global Constraints
-- Plans 0–5 constraints apply.
-- Node version for bundling: **24 LTS** (the Switchboard's own Docker image uses `node:24`); downloaded from `https://nodejs.org/dist/v24.x.y/` with `SHASUMS256.txt` verification, cached in CI by version.
-- External binaries are named per Tauri's rule: `src-tauri/binaries/node-x86_64-unknown-linux-gnu`, `node-aarch64-apple-darwin`, `node-x86_64-apple-darwin`.
-- Resources: `sidecar/dist`, `sidecar/node_modules` (production install, `bun install --production --frozen-lockfile` in a staging copy), `sidecar/powerhouse.config.json`, `host/dist`; the installer size per target is printed and recorded in the release notes.
-- The app icon is generated from `assets/vault-icon.png` (padded to a 1024 × 1024 transparent square) with `bunx @tauri-apps/cli icon`; no other icon source exists.
-- `main` is the release branch: a push to `main` builds and publishes; `dev` and feature branches only run checks and e2e.
-- No code signing or notarisation in this phase (macOS users right-click → Open once); documented in the README and the release notes.
+- Plans 0–5 constraints apply. bun locally; Node runs the engine.
+- **Node 24.21.0** is pinned in `scripts/node-version.mjs` (one place); downloads are verified against `SHASUMS256.txt`, cached in `~/.cache/desktop-knowledge-vault/node/`.
+- External binary per Tauri's rule: `src-tauri/binaries/node-<target-triple>` (`x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`).
+- The staged engine lives in `.stage/sidecar/` (`dist/`, `converter/`, `powerhouse.config.json`, `package.json`, `node_modules/`) and is bundled as the resource `sidecar/`. `.stage/` and `src-tauri/binaries/` are git-ignored.
+- Staging and pruning run **on the target OS** (each CI runner stages its own), because native optional packages are installed for the machine that installs.
+- Versions: root `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` carry the same app version (checked); About already shows app/stack/vault-package from the engine's `/status`.
+- No signing/notarisation yet (macOS: right-click → Open once); release builds are marked prerelease.
 
 ## Review Focus
-1. **The bundled Node must run on the oldest supported Linux** (glibc of ubuntu-22.04): build on 22.04, not latest — release workflow pins `ubuntu-22.04`; the `.AppImage` smoke test runs on a clean 22.04 container.
-2. **A sidecar resource path with spaces** (`/Applications/Knowledge Vault.app/…`): the shell quotes nothing and passes paths as separate args; `cwd` handles spaces — Rust path test with a space in the resource dir.
-3. **The host served over loopback must not be reachable from the LAN**: `tauri-plugin-localhost` binds `127.0.0.1` only — test that `0.0.0.0:<hostPort>` refuses from another interface (Linux CI with a second network namespace is overkill: assert the bind address in the plugin configuration and in `ss -ltn` output during the smoke test).
-4. **Perf gate flakiness**: boot time is measured as the median of three cold starts, RSS as the minimum of three one-minute idle samples; thresholds boot ≤ 10 s, idle ≤ 1 GB on the generated ~2.5k-document vault.
-5. **Release notes drift**: the package and stack versions in the notes come from `package.json` files at build time, never from a hand-edited string — `release-notes.mjs` test.
+1. **Never prune by directory name**; prune only by platform and by file extension — the staging test pins both rules.
+2. **Resource paths with spaces** (`/Applications/Knowledge Vault.app/…`): arguments are passed as separate args, `current_dir` takes the path as is — Rust test with a space.
+3. **The host server binds 127.0.0.1 only**, on a port picked free before the app is built; the window, the navigation guard and `KV_HOST_ORIGIN` all use that port.
+4. **Dev mode is untouched**: the localhost plugin is registered only in a release build (`cfg(not(dev))`); dev keeps system `node`, Vite and the dev loop.
+5. **Release notes come from manifests** (app, stack, vault package versions; installer sizes measured), never hand-edited strings.
 
-## Tasks (interfaces fixed; expand before execution)
+## Tasks
 
-### Task 1 — scripts: Node download with checksum, sidecar staging, icon generation
-`scripts/fetch-node.mjs` (`--version 24.x.y --target <triple>` → `src-tauri/binaries/node-<triple>`; verifies against `SHASUMS256.txt`), `scripts/stage-sidecar.mjs` (copies `sidecar/dist`, `sidecar/powerhouse.config.json`, runs `bun install --production --frozen-lockfile` in `.stage/sidecar`, prunes `*.map`, `*.d.ts`, `test/`, `__tests__/`; prints the size), `scripts/make-icon.mjs` (`magick assets/vault-icon.png -background none -gravity center -extent 1024x1024 assets/vault-icon-1024.png` then `bunx @tauri-apps/cli icon assets/vault-icon-1024.png`). Tests: checksum verification rejects a tampered file; staging prune list.
+### Task 1 — Node download with checksum (`scripts/fetch-node.mjs`)
+- [ ] Test (`scripts/lib/node-dist.test.mjs`): `nodeAsset("24.21.0", "x86_64-unknown-linux-gnu")` → `node-v24.21.0-linux-x64.tar.xz` + path `bin/node`; darwin arm64/x64 → `node-v24.21.0-darwin-{arm64,x64}.tar.xz`; unknown triple throws; `verifySha256(file, shasumsText)` accepts the listed hash and rejects a tampered file and a missing entry.
+- [ ] Implement `scripts/lib/node-dist.mjs` + `scripts/node-version.mjs` + `scripts/fetch-node.mjs --target <triple>` (download to cache unless cached and verified, extract only `bin/node`, write `src-tauri/binaries/node-<triple>` mode 0755). Live: fetch for this machine, `--version` prints v24.21.0.
+- [ ] Commit.
 
-### Task 2 — shell: production serving and resource paths
-`tauri.conf.json`: `bundle.active: true`, `bundle.externalBin: ["binaries/node"]`, `bundle.resources: { "../.stage/sidecar/": "sidecar/", "../host/dist/": "host/" }`, `bundle.icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]`, `bundle.macOS.entitlements: "entitlements.plist"` (allows the external binary: `com.apple.security.cs.allow-unsigned-executable-memory` false, `com.apple.security.cs.disable-library-validation` true), `build.frontendDist: "../host/dist"`; `tauri-plugin-localhost` serving `host/` on `hostPort` bound to `127.0.0.1` (the window loads `http://127.0.0.1:<hostPort>`); in production `spawn_sidecar` uses `app.shell().sidecar("binaries/node")` with `args [resource_dir/sidecar/dist/main.js]` and `current_dir(resource_dir/sidecar)`; dev keeps system `node`. Tests: resource path assembly with spaces; dev/prod switch.
+### Task 2 — Staging the engine (`scripts/stage-sidecar.mjs`)
+- [ ] Test (`scripts/lib/prune.test.mjs`): on a fake tree, `prune(nm, "x86_64-unknown-linux-gnu")` removes `onnxruntime-node/bin/napi-v6/{darwin,win32}` and `linux/arm64`, `@img/sharp-darwin-arm64`, `@img/sharp-linuxmusl-x64`, `@napi-rs/canvas-win32-x64-msvc`, `*.map`, `*.d.ts`; keeps `@img/sharp-linux-x64`, `@napi-rs/canvas-linux-x64-gnu`, `viem/_esm/actions/test/x.js`, `pkg/docs/x.js`, `LICENSE`; for `aarch64-apple-darwin` keeps `@img/sharp-darwin-arm64` and `onnxruntime-node/bin/napi-v6/darwin/arm64`.
+- [ ] Implement `scripts/lib/prune.mjs` and `scripts/stage-sidecar.mjs` (copy manifests + lockfile + bunfig/.npmrc to `.stage/ws/`, frozen production hoisted install filtered to the sidecar, assemble `.stage/sidecar/`, prune for the target, print the size). Live: stage, boot `.stage/sidecar` with the fetched Node in `env -i` on a scratch store → ready.
+- [ ] Commit.
 
-### Task 3 — host: version injection
-`vite.config.ts` defines `__APP_VERSION__` (from root `package.json`), `__STACK_VERSION__` (from `@powerhousedao/reactor-browser` version in `host/package.json`), `__VAULT_PACKAGE_VERSION__` (from `@powerhousedao/knowledge-note/package.json`); About shows all three; `KV_APP_VERSION` passed to the sidecar by the shell comes from `CARGO_PKG_VERSION`, kept equal by `scripts/check-versions.mjs` (root `package.json`, `src-tauri/Cargo.toml`, `tauri.conf.json` must agree). Test for the agreement check.
+### Task 3 — The shell in a release build
+- [ ] Tests (Rust): `config::resource_sidecar(resource_dir)` → `<resource>/sidecar/dist/main.js` (path with a space survives intact); `SidecarLaunch::for_build(packaged)` → packaged: program = the bundled `node` sidecar, cwd = `<resource>/sidecar`; dev: `node` on PATH, cwd = the repo's `sidecar/`.
+- [ ] Implement: `Cargo.toml` + `tauri-plugin-localhost = "2.4"`; in `run()`, pick the host port free (default 4200) before the builder; `#[cfg(not(dev))]` register `tauri_plugin_localhost::Builder::new(port).host("127.0.0.1")`; the window loads `WebviewUrl::External(http://127.0.0.1:<port>)` in release, `default()` in dev; the navigation guard and `Ports.host` use that port; `spawn_sidecar` uses `app.shell().sidecar("node")` with the resource paths when packaged. `tauri.conf.json`: `bundle.active: true`, `externalBin: ["binaries/node"]`, `resources: { "../.stage/sidecar/": "sidecar/" }`, `bundle.linux.deb`/`appimage` defaults, `bundle.macOS.entitlements: "entitlements.plist"`; capability `remote.urls: ["http://127.0.0.1:*"]` for the main window; CSP stays `null` in this phase and is recorded as an open item (a CSP breaks the vault app in ways only the packaged app shows — needs its own pass with a CSP-enforcing e2e).
+- [ ] `cargo clippy -D warnings`, `cargo test`; dev loop still works (`bun run dev` window shows the landing).
+- [ ] Commit.
 
-### Task 4 — `bun run build:app` and the local smoke
-Root script: `bun run build:host && bun run build:sidecar && node scripts/stage-sidecar.mjs && node scripts/fetch-node.mjs --target $(rustc -vV | sed -n 's/host: //p') && bunx @tauri-apps/cli build`. Smoke (`scripts/smoke-installer.sh`): install the `.AppImage` into a clean `ubuntu:22.04` container with `xvfb-run`, launch with `KV_SMOKE=1` (the shell exits 0 after the sidecar reports ready and the host answered `/`), assert exit 0 within 60 s, print installer size and RSS.
+### Task 4 — `bun run build:app`, version check, smoke
+- [ ] Test (`scripts/lib/versions.test.mjs`): `checkVersions({ pkg, cargo, tauri })` passes when equal, names each mismatch.
+- [ ] Implement `scripts/check-versions.mjs`; root scripts `versions:check`, `build:app` = `versions:check && build:host && build:sidecar && stage-sidecar && fetch-node --target <host triple> && tauri build`; `scripts/smoke-app.mjs` — launches the built binary (AppImage on Linux, `.app` on macOS) with `KV_SMOKE=1` and a temp `XDG_DATA_HOME`/`HOME`; the shell, when `KV_SMOKE=1`, exits 0 once the engine is ready **and** the host page answered on its port (exit 1 after 90 s); prints installer size, time to ready and peak RSS. Live: `bun run build:app` on this machine, smoke passes.
+- [ ] `scripts/build-linux-docker.sh`: the same build inside `ubuntu:22.04` (the CI image's glibc), artefacts copied out — optional locally, documented.
+- [ ] Commit.
 
-### Task 5 — perf gate
-`perf/generate-vault.mjs`: against a fresh sidecar, create a vault and ~2,500 documents (2,000 notes with realistic bodies, 400 sources, 85 MoCs, relationships) through the vault's REST `POST notes`/`POST sources` and `POST relationships` routes; cache the resulting data dir in CI by generator hash. `perf/measure.mjs` (from `spike/bin/measure.sh`): three cold starts → median boot-to-GraphQL and index-ready; three one-minute idle RSS samples → minimum; assert ≤ 10 s and ≤ 1 GB; print a table. Runs on Linux CI only.
+### Task 5 — CI and release workflows
+- [ ] `.github/workflows/ci.yml` (push to any branch but `main`, PRs): ubuntu-22.04; install webkit/gtk build deps, Rust, bun; `bun install --frozen-lockfile`; `versions:check`, `stack:check`, `converter:check` (skipped when `../docling` is absent — CI has the vendored copy only), `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, `cargo test`, `bun run tsc`, `bun run test`, `bunx playwright install --with-deps chromium`, `bun run e2e`. Fails if `bun.lock` contains a `file:` link.
+- [ ] `.github/workflows/release.yml` (push to `main`): matrix ubuntu-22.04 / macos-14 / macos-13; stage + fetch-node per target; `tauri-apps/tauri-action@v0` with `tagName: v__VERSION__`, `prerelease: true`, body from `scripts/release-notes.mjs` (app/stack/vault-package versions from manifests, Node version, unsigned-macOS note); a final job appends each artefact's size.
+- [ ] Test (`scripts/lib/release-notes.test.mjs`): notes contain the three versions read from fixture manifests and the Node version; sizes formatted in MB.
+- [ ] Lint the YAML (`actionlint` if available, else parse with a YAML parser in a test). Workflows run once the repository exists on GitHub.
+- [ ] Commit.
 
-### Task 6 — GitHub Actions
-`.github/workflows/ci.yml` (on push to `dev`/feature branches and PRs): checkout both repos? No — the desktop repo pins the **published** package in CI: `bun install --frozen-lockfile` with `@powerhousedao/knowledge-note` from npm (the `file:` link is for local work; CI fails if the lockfile still points at `file:`), then `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun run tsc`, `bun run test`, `bun run stack:check`, `bunx playwright install --with-deps chromium`, `bun run e2e`, `node perf/measure.mjs` (Linux). `.github/workflows/release.yml` (on push to `main`): matrix `ubuntu-22.04` (x86_64-unknown-linux-gnu), `macos-14` (aarch64-apple-darwin), `macos-13` (x86_64-apple-darwin); steps: install Rust + bun, `bun install --frozen-lockfile`, `bun run build:host`, `bun run build:sidecar`, `node scripts/stage-sidecar.mjs`, `node scripts/fetch-node.mjs --target <triple>`, `tauri-apps/tauri-action@v0` with `tagName: v__VERSION__`, `releaseName: Knowledge Vault v__VERSION__`, `releaseBody` from `node scripts/release-notes.mjs` (installer sizes per target appended by a final job, package + stack versions), `prerelease: true` until signing exists. Caches: cargo registry, bun cache, node binaries, Playwright browsers, the perf vault.
-
-### Task 7 — docs
-README: install instructions per platform (macOS right-click → Open), where data lives, how to connect the CLI, how to build locally; CHANGELOG seeded from the release notes script.
+### Task 6 — Perf gate (deferred note) and docs
+- [ ] `perf/` gate (spec §12: boot ≤ 10 s, idle ≤ 1 GB on a ~2.5k-document vault) is recorded as a follow-up with its design (generator through the vault's REST routes, median of three cold starts); not built in this phase — measured once by hand on the built app with the user's 2.8k-document snapshot instead, numbers in the ledger.
+- [ ] README: install per platform (unsigned macOS: right-click → Open), where data lives (`~/.local/share/xyz.powerhouse.desktop-knowledge-vault/vault`, `~/Library/Application Support/…/vault`), connecting the CLI, building locally (`bun run build:app`, `scripts/build-linux-docker.sh`).
+- [ ] Commit; ledger; plans index.
 
 ## Done when
-`bun run build:app` yields an installer that passes the clean-container smoke; `main` publishes Linux and macOS artefacts with sizes and versions in the notes; CI runs checks, e2e and the perf gate on every push; the app icon is the vault icon everywhere (window, dock/taskbar, installer).
-
-## Review follow-ups (from the Phase 0 review)
-
-- `tauri.conf.json` has `"csp": null` — fine in dev, must be set before the first release build (loopback origins
-  for the engine ports, `'self'` for the host, no remote script).
-- The sidecar's `secrets/` and `umask 077` assume a POSIX file system; verify the Windows build keeps secrets private
-  (ACLs) when Windows is added.
-- macOS manual check: Cmd+Q must stop the engine (the shell handles `RunEvent::Exit` for it; `ExitRequested` never
-  fires for Cmd+Q). Confirm no `node` process survives and the store lock is released.
+`bun run build:app` produces an installer for this machine that passes `scripts/smoke-app.mjs` from a clean data folder; the release and CI workflows are in the repository (they run once it is on GitHub); all gates green.
