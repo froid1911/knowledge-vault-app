@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AccessToken, IdentityStatus } from "./identity.js";
-import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
+import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, RemoteTooOldError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
 import type { EnsureResult, PipelineStatus } from "./pipelines.js";
 import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch, type LocalProtection } from "./settings.js";
@@ -320,6 +320,7 @@ export function createControlServer(deps: ControlDeps) {
       if (error instanceof RemoteAuthError) return send(res, 401, { error: error.message }, allowed);
       if (error instanceof RemoteAccessError) return send(res, 403, { error: error.message }, allowed);
       if (error instanceof RemoteNotFoundError) return send(res, 404, { error: error.message }, allowed);
+      if (error instanceof RemoteTooOldError) return send(res, 409, { error: error.message }, allowed);
       return send(res, 500, { error: error instanceof Error ? error.message : String(error) }, allowed);
     }
   });

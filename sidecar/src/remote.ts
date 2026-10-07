@@ -9,6 +9,29 @@ export class RemoteInputError extends Error {}
 export class RemoteAuthError extends Error {}
 export class RemoteAccessError extends Error {}
 export class RemoteNotFoundError extends Error {}
+/** The server predates the GraphQL argument names this app uses (`idOrSlug`, 6.2.3-dev.35). */
+export class RemoteTooOldError extends Error {}
+
+/**
+ * Spec §9: a server older than dev.35 has no `idOrSlug` argument on `document`; the
+ * vault app would fail on its first query. A server that will not answer
+ * introspection cannot be told apart, so it is not refused.
+ */
+async function assertServerCurrent(origin: string, headers: Record<string, string>, fetchImpl: typeof fetch): Promise<void> {
+  let fields: { name: string; args?: { name: string }[] }[] | undefined;
+  try {
+    const res = await fetchImpl(`${origin}/graphql`, { method: "POST", headers, body: JSON.stringify({ query: `{ __type(name: "Query") { fields { name args { name } } } }` }) });
+    if (!res.ok) return;
+    const json = (await res.json()) as { data?: { __type?: { fields?: typeof fields } | null } };
+    fields = json.data?.__type?.fields ?? undefined;
+  } catch {
+    return;
+  }
+  const document = fields?.find((f) => f.name === "document");
+  if (document && !(document.args ?? []).some((a) => a.name === "idOrSlug")) {
+    throw new RemoteTooOldError("This vault's server is too old for this app (it needs Powerhouse 6.2.3-dev.35 or newer).");
+  }
+}
 
 const RESERVED = new Set(["graphql", "api", "d", "mcp", "health"]);
 
@@ -58,6 +81,7 @@ export async function checkRemoteVault(origin: string, drive: string, token: str
   if (res.status === 403) throw new RemoteAccessError("You are signed in, but this server has not granted you access to that vault. Ask its administrator for READ on the drive.");
   if (res.status === 404) throw new RemoteNotFoundError("No vault with that id or slug on this server — or none you may read.");
   if (!res.ok) throw new Error(`The server answered HTTP ${res.status}.`);
+  await assertServerCurrent(origin, headers, fetchImpl);
   const info = (await res.json()) as { id?: unknown; slug?: unknown; name?: unknown };
   if (typeof info.id !== "string" || !info.id) throw new Error("The server's answer did not name the drive.");
   const id = info.id;

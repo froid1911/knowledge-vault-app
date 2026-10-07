@@ -6,6 +6,7 @@ import { activate } from "../reactor.js";
 import type { SidecarInfo } from "../sidecar.js";
 import { AppBar } from "../shell/AppBar.js";
 import { WorkspaceScreen } from "./WorkspaceScreen.js";
+import { useRemoteHealth } from "../state/use-remote-health.js";
 
 /**
  * A vault on another Switchboard, in client mode (spec §5.5): the mounted app
@@ -13,7 +14,39 @@ import { WorkspaceScreen } from "./WorkspaceScreen.js";
  * vault package follows the re-declared host origin. Leaving restores the
  * local engine as the active target.
  */
-export function RemoteWorkspaceScreen({ info, vault, identity, onBack, onSettings }: { info: SidecarInfo; vault: RemoteVault; identity: HostIdentity | undefined; onBack: () => void; onSettings?: () => void }) {
+export function RemoteWorkspaceScreen({
+  info,
+  vault,
+  identity,
+  onBack,
+  onSettings,
+  probeFetch,
+  probeMs,
+}: {
+  info: SidecarInfo;
+  vault: RemoteVault;
+  identity: HostIdentity | undefined;
+  onBack: () => void;
+  onSettings?: () => void;
+  /** For tests: the reachability probe's fetch and interval. */
+  probeFetch?: typeof fetch;
+  probeMs?: number;
+}) {
+  // Spec §9: client mode keeps nothing locally, so an unreachable server is said, not hidden.
+  const reach = useRemoteHealth(vault.switchboardUrl, probeMs, probeFetch);
+  const host = (() => {
+    try {
+      return new URL(vault.switchboardUrl).host;
+    } catch {
+      return vault.switchboardUrl;
+    }
+  })();
+  const offline = reach === "offline" && (
+    <div className="kv-engine-banner" role="status">
+      <span className="kv-dot" aria-hidden="true" />
+      You're offline — this vault lives on {host} and needs a connection.
+    </div>
+  );
   const tokenProvider = useMemo(() => createTokenProvider(info), [info]);
   const [client, setClient] = useState<ReturnType<typeof activate> | null>(null);
   // Activation is keyed on the target only; the declaration follows the identity as well, so a
@@ -34,9 +67,15 @@ export function RemoteWorkspaceScreen({ info, vault, identity, onBack, onSetting
     return (
       <div className="kv-vault-screen">
         <AppBar title={vault.name} onBack={onBack} onSettings={onSettings} />
+        {offline}
         <p role="status" className="kv-quiet kv-main">Connecting…</p>
       </div>
     );
   }
-  return <WorkspaceScreen client={client} driveId={vault.id} appId="knowledge-vault" fallbackTitle={vault.name} onBack={onBack} onSettings={onSettings} />;
+  return (
+    <>
+      {offline}
+      <WorkspaceScreen client={client} driveId={vault.id} appId="knowledge-vault" fallbackTitle={vault.name} onBack={onBack} onSettings={onSettings} />
+    </>
+  );
 }
