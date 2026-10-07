@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReadyLine, parseRestartLine } from "./ready-line.mjs";
+import { parseFatalLine, parseReadyLine, parseRestartLine, parseShutdownLine } from "./ready-line.mjs";
 
 describe("parseReadyLine", () => {
   it("parses the sidecar's readiness line", () => {
@@ -18,5 +18,14 @@ describe("parseRestartLine", () => {
     expect(parseRestartLine('{"event":"restart","reason":"protection"}')).toEqual({ reason: "protection" });
     expect(parseRestartLine('{"event":"ready","port":4201,"controlPort":4202}')).toBeNull();
     expect(parseRestartLine("[switchboard] restart")).toBeNull();
+  });
+});
+
+describe("fatal and shutdown lines", () => {
+  it("parses them and nothing else", () => {
+    expect(parseFatalLine('{"event":"fatal","reason":"store-too-new","message":"m"}')).toEqual({ reason: "store-too-new", message: "m" });
+    expect(parseFatalLine('{"event":"ready","port":1,"controlPort":2}')).toBeNull();
+    expect(parseShutdownLine('{"event":"shutdown"}')).toBe(true);
+    expect(parseShutdownLine("[sidecar] shutting down")).toBe(false);
   });
 });

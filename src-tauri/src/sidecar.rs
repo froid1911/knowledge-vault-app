@@ -372,10 +372,9 @@ pub fn spawn_sidecar(
                             control_port,
                             control_token: token.clone(),
                         });
-                        // A healthy start ends the crash count.
-                        st.attempt = 0;
+                        // The crash count is the window's (two minutes), not a healthy start's: an engine
+                        // that comes up and then crashes every half-minute must still be reported.
                         st.delay_ms = None;
-                        st.crashes.reset();
                         drop(st);
                         emit_status(&handle);
                     } else if parse_restart_line(&line) {
