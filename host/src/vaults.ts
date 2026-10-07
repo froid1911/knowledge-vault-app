@@ -130,3 +130,29 @@ export type ModelVerdict = { ok: boolean; detail: string; warning?: string };
 export async function validateModels(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<ModelVerdict> {
   return control<ModelVerdict>(info, "/settings/models/validate", { method: "POST" }, fetchImpl);
 }
+
+// ---- Plan 5: maintenance. Backups, restores and the delete-all run at the engine's next start (spec §9).
+export type BackupInfo = { name: string; path: string; bytes: number; stackVersion: string; createdAt: string };
+export type ActionResult = { action: "backup" | "restore" | "delete-all"; ok: boolean; detail: string; at: string };
+export type ExportResult = { path: string; documents: number; bytes: number };
+export async function fetchBackups(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<{ backups: BackupInfo[]; lastAction: ActionResult | null }> {
+  return control(info, "/backups", { method: "GET" }, fetchImpl);
+}
+export async function requestBackup(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<{ restarting: boolean }> {
+  return control(info, "/backups", { method: "POST" }, fetchImpl);
+}
+export async function requestRestore(info: SidecarInfo, name: string, fetchImpl: typeof fetch = fetch): Promise<{ restarting: boolean }> {
+  return control(info, `/backups/${encodeURIComponent(name)}/restore`, { method: "POST" }, fetchImpl);
+}
+export async function requestDeleteAll(info: SidecarInfo, includeBackups: boolean, fetchImpl: typeof fetch = fetch): Promise<{ restarting: boolean }> {
+  return control(info, "/data/delete-all", { method: "POST", body: JSON.stringify({ confirm: "delete", includeBackups }) }, fetchImpl);
+}
+export async function exportVault(info: SidecarInfo, id: string, fetchImpl: typeof fetch = fetch): Promise<ExportResult> {
+  return (await control<{ export: ExportResult }>(info, `/vaults/${encodeURIComponent(id)}/export`, { method: "GET" }, fetchImpl)).export;
+}
+export async function fetchLogTail(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  return (await control<{ lines: string[] }>(info, "/logs/tail", { method: "GET" }, fetchImpl)).lines;
+}
+export async function shutdownEngine(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<{ stopping: boolean }> {
+  return control(info, "/shutdown", { method: "POST" }, fetchImpl);
+}

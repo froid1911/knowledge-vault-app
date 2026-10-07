@@ -1,18 +1,32 @@
 export type SidecarInfo = { origin: string; graphqlUrl: string; controlOrigin: string; controlToken: string };
 
-/** What the host knows about the engine: starting (no readiness line yet), ready, or exited with its code. */
+/** The engine refused to start and said why (`store-too-new`, `store-in-use`). */
+export type FatalInfo = { reason: string; message: string };
+
+/**
+ * What the host knows about the engine (spec §9): starting (no readiness line yet), ready,
+ * restarting after a crash (attempt n, back in delayMs), gave up after a crash loop or a
+ * refusal, exited, or being stopped by the shell.
+ */
 export type SidecarStatus =
   | { state: "starting" }
   | { state: "ready"; info: SidecarInfo }
-  | { state: "exited"; code: number | null }
+  | { state: "restarting"; attempt: number; delayMs: number | null }
+  | { state: "gave_up"; code: number | null; logTail: string[]; fatal: FatalInfo | null }
+  | { state: "exited"; code: number | null; fatal?: FatalInfo }
+  | { state: "stopping" }
   /** The shell's API could not be reached at all (import, listen or invoke failed). */
   | { state: "failed"; detail: string };
 
 /** The shell's `sidecar_info` answer and its `sidecar:status` payload (src-tauri/src/sidecar.rs `SidecarStatus`). */
 export type ShellStatus = {
-  state: "starting" | "ready" | "exited";
+  state: "starting" | "ready" | "restarting" | "gave_up" | "exited" | "stopping";
   ready: { port: number; controlPort: number; controlToken: string } | null;
   code: number | null;
+  attempt?: number;
+  delayMs?: number | null;
+  fatal?: FatalInfo | null;
+  logTail?: string[];
 };
 
 export function sidecarOrigins(port: number, controlPort: number) {
@@ -24,7 +38,10 @@ export function statusFromShell(raw: ShellStatus): SidecarStatus {
   if (raw.state === "ready" && raw.ready) {
     return { state: "ready", info: { ...sidecarOrigins(raw.ready.port, raw.ready.controlPort), controlToken: raw.ready.controlToken } };
   }
-  if (raw.state === "exited") return { state: "exited", code: raw.code ?? null };
+  if (raw.state === "restarting") return { state: "restarting", attempt: raw.attempt ?? 1, delayMs: raw.delayMs ?? null };
+  if (raw.state === "gave_up") return { state: "gave_up", code: raw.code ?? null, logTail: raw.logTail ?? [], fatal: raw.fatal ?? null };
+  if (raw.state === "exited") return raw.fatal ? { state: "exited", code: raw.code ?? null, fatal: raw.fatal } : { state: "exited", code: raw.code ?? null };
+  if (raw.state === "stopping") return { state: "stopping" };
   return { state: "starting" };
 }
 
