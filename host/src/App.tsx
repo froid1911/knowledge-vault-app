@@ -16,6 +16,7 @@ import { matchShortcut } from "./shell/shortcuts.js";
 import type { SidecarInfo } from "./sidecar.js";
 import type { TokenProvider } from "./api/identity.js";
 import { EngineBanner } from "./components/EngineBanner.js";
+import { DownloadNotice } from "./components/DownloadNotice.js";
 import { useEngineHealth } from "./state/use-engine-health.js";
 
 /** The packages the host mounts; boot.tsx installs the reactor with their document models, once. */
@@ -101,6 +102,7 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
     <RenownProvider appName="desktop-knowledge-vault" url="https://www.renown.id" switchboardUrl={info.origin}>
       <EngineBanner health={health} />
       {screen}
+      <DownloadNotice />
     </RenownProvider>
   );
 }

@@ -1,5 +1,6 @@
 mod backoff;
 mod config;
+mod download;
 mod host_server;
 mod log_tail;
 mod navigation;
@@ -14,7 +15,7 @@ use config::{
 use sidecar::{ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar_blocking};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// The engine's data directory, known once the engine is spawned or adopted (open_logs, reveal_path, close-to-tray).
 #[derive(Default)]
@@ -61,13 +62,17 @@ fn open_logs(app: AppHandle) -> Result<(), String> {
 /// Show a file the app wrote (an export, a backup) in the file manager — only inside the data folder.
 #[tauri::command]
 fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
-    let root = data_dir(&app).ok_or("The engine's data folder is not known yet.")?;
     let target = PathBuf::from(&path)
         .canonicalize()
         .map_err(|e| e.to_string())?;
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    if !target.starts_with(&root) {
-        return Err("Only files in the app's data folder can be shown.".into());
+    // The app's data folder (exports, backups) and the Downloads folder (what the page saved).
+    let roots: Vec<PathBuf> = [data_dir(&app), app.path().download_dir().ok()]
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r.canonicalize().ok())
+        .collect();
+    if !roots.iter().any(|r| target.starts_with(r)) {
+        return Err("Only files the app saved can be shown.".into());
     }
     tauri_plugin_opener::reveal_item_in_dir(&target).map_err(|e| e.to_string())
 }
@@ -114,6 +119,7 @@ pub fn run() {
         .manage(Mutex::new(SidecarState::default()))
         .manage(DataDir::default())
         .manage(tray::Tray::default())
+        .manage(download::Downloads::default())
         .manage(smoke::HostLoaded::default())
         .invoke_handler(tauri::generate_handler![
             sidecar_info,
@@ -165,6 +171,46 @@ pub fn run() {
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(960.0, 640.0)
                 .disable_drag_drop_handler()
+                .on_download(|webview, event| {
+                    use tauri::webview::DownloadEvent;
+                    let app = webview.app_handle();
+                    match event {
+                        DownloadEvent::Requested { url, destination } => {
+                            let dir = app
+                                .path()
+                                .download_dir()
+                                .or_else(|_| app.path().home_dir())
+                                .unwrap_or_else(|_| std::env::temp_dir());
+                            let name = download::file_name_for(destination, &url);
+                            let target = download::unique_destination(&dir, &name);
+                            app.state::<download::Downloads>()
+                                .0
+                                .lock()
+                                .unwrap()
+                                .insert(url.to_string(), target.clone());
+                            *destination = target;
+                            true
+                        }
+                        DownloadEvent::Finished { url, path, success } => {
+                            let remembered = app
+                                .state::<download::Downloads>()
+                                .0
+                                .lock()
+                                .unwrap()
+                                .remove(&url.to_string());
+                            let saved = path.or(remembered);
+                            let _ = app.emit(
+                                "download:finished",
+                                serde_json::json!({
+                                    "success": success,
+                                    "path": saved.as_ref().map(|p| p.to_string_lossy().to_string()),
+                                }),
+                            );
+                            true
+                        }
+                        _ => true,
+                    }
+                })
                 .on_navigation(move |url| {
                     if navigation::is_internal(url, host_port, packaged) {
                         return true;

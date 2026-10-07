@@ -279,3 +279,7 @@ body, #root { margin: 0; min-height: 100vh; }
 [data-bai-theme="light"] select:not([multiple]):not([size]) {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2352525b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }
+
+/* The page's downloads (an original source, a document export) — where they went. */
+.kv-download-notice { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--bai-border); border-radius: 10px; background: var(--bai-overlay); color: var(--bai-text); font: 14px/1.4 var(--kv-font-ui); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); }
+.kv-download-notice[data-ok="false"] { border-color: var(--bai-danger); }
