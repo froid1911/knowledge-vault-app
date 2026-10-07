@@ -26,7 +26,16 @@ export async function fetchVaults(info: SidecarInfo, fetchImpl: typeof fetch = f
 export async function createVault(info: SidecarInfo, name: string, fetchImpl: typeof fetch = fetch): Promise<VaultSummary> {
   return (await control<{ vault: VaultSummary }>(info, "/vaults", { method: "POST", body: JSON.stringify({ name }) }, fetchImpl)).vault;
 }
-export type EngineStatus = { ok: true; port: number; controlPort: number; appVersion: string; protected: boolean; dataDir: string; stackVersion: string; vaultPackageVersion: string };
+export type EngineStatus = { ok: true; port: number; controlPort: number; appVersion: string; protected: boolean; adminAddress?: string | null; dataDir: string; stackVersion: string; vaultPackageVersion: string };
+/** Spec §4.4: one switch for the local engine. */
+export type LocalProtection = { protected: boolean; adminAddress: string | null };
+export async function fetchProtection(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<LocalProtection> {
+  return control<LocalProtection>(info, "/local/protection", { method: "GET" }, fetchImpl);
+}
+/** Asks the engine to switch; it restarts itself with the new setting (202). */
+export async function setProtection(info: SidecarInfo, wanted: boolean, fetchImpl: typeof fetch = fetch): Promise<LocalProtection & { restarting: boolean }> {
+  return control<LocalProtection & { restarting: boolean }>(info, "/local/protection", { method: "PUT", body: JSON.stringify({ protected: wanted }) }, fetchImpl);
+}
 export async function fetchStatus(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<EngineStatus> {
   return control<EngineStatus>(info, "/status", { method: "GET" }, fetchImpl);
 }

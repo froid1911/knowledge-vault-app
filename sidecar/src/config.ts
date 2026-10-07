@@ -51,6 +51,8 @@ export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, o
   return {
     // Open mode (vault package §7.3): the anonymous caller is the engine's owner. Declared only when not protected.
     ...(cfg.protected ? {} : { KNOWLEDGE_VAULT_OPEN_MODE: "1", KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS: openModeAddress }),
+    // Under the authenticated-caller floor /health would answer 401; the sidecar reads it to know the engine is up.
+    ...(cfg.protected ? { REQUIRE_AUTHENTICATED_CALLER_EXEMPT_PATHS: "/health" } : {}),
     PORT: String(cfg.port),
     PH_REACTOR_DATABASE_URL: join(cfg.dataDir, "reactor"),
     DATABASE_URL: join(cfg.dataDir, "read-model"),

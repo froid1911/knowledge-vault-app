@@ -1,4 +1,4 @@
-use crate::config::{AppPaths, Ports};
+use crate::config::{AppPaths, LocalProtection, Ports};
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -13,6 +13,15 @@ pub struct ReadyInfo {
     pub control_token: String,
 }
 
+/// Everything a respawn needs — recorded at spawn so the Terminated handler can start the engine again.
+#[derive(Clone)]
+pub struct SpawnParams {
+    pub paths: AppPaths,
+    pub ports: Ports,
+    pub token: String,
+    pub app_version: String,
+}
+
 #[derive(Default)]
 pub struct SidecarState {
     pub ready: Option<ReadyInfo>,
@@ -20,6 +29,24 @@ pub struct SidecarState {
     /// True from spawn until the Terminated event — the only reliable "is it alive".
     pub running: bool,
     pub exit_code: Option<i32>,
+    pub spawn: Option<SpawnParams>,
+    /// The engine printed a restart line (the protection switch): its exit is a respawn, not a stop.
+    pub restart_requested: bool,
+}
+
+/// What an exit means: a requested restart is respawned; anything else is reported as exited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExitAction {
+    Respawn,
+    Exited,
+}
+
+pub fn exit_action(restart_requested: bool) -> ExitAction {
+    if restart_requested {
+        ExitAction::Respawn
+    } else {
+        ExitAction::Exited
+    }
 }
 
 /// What the host sees: `starting` (spawned, no readiness line yet), `ready`, or `exited` (with the code).
@@ -59,8 +86,9 @@ impl SidecarEnv {
         ports: &Ports,
         token: &str,
         app_version: &str,
+        protection: &LocalProtection,
     ) -> Vec<(String, String)> {
-        vec![
+        let mut env = vec![
             (
                 "KV_DATA_DIR".into(),
                 paths.data_dir.to_string_lossy().into_owned(),
@@ -74,7 +102,18 @@ impl SidecarEnv {
             ),
             ("KV_APP_VERSION".into(), app_version.to_string()),
             ("KV_STDIN_STOP".into(), "1".into()),
-        ]
+        ];
+        // Spec §4.4: protected only with an administrator (the sidecar refuses KV_PROTECTED without one).
+        if protection.protected
+            && let Some(admin) = protection
+                .admin_address
+                .as_deref()
+                .filter(|a| !a.is_empty())
+        {
+            env.push(("KV_PROTECTED".into(), "1".into()));
+            env.push(("KV_ADMIN_ADDRESS".into(), admin.to_string()));
+        }
+        env
     }
 }
 
@@ -93,7 +132,24 @@ pub fn parse_ready_line(line: &str) -> Option<(u16, u16)> {
     Some((port, control))
 }
 
+/// `{"event":"restart",…}` — the engine wants to be started again (the protection switch changed its environment).
+pub fn parse_restart_line(line: &str) -> bool {
+    let t = line.trim();
+    if !t.starts_with('{') {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(t)
+        .ok()
+        .and_then(|v| {
+            v.get("event")
+                .and_then(|e| e.as_str())
+                .map(|e| e == "restart")
+        })
+        .unwrap_or(false)
+}
+
 /// Spawn `node <sidecar_main>` with the env (cwd = sidecar/); relay readiness and exit as `sidecar:status` events.
+/// The protection section is read from config.json at every spawn, so a respawn picks up the switch.
 pub fn spawn_sidecar(
     app: &AppHandle,
     paths: &AppPaths,
@@ -101,7 +157,8 @@ pub fn spawn_sidecar(
     token: String,
     app_version: &str,
 ) -> tauri::Result<()> {
-    let env = SidecarEnv::build(paths, &ports, &token, app_version);
+    let protection = LocalProtection::load(&paths.data_dir.join("config.json"));
+    let env = SidecarEnv::build(paths, &ports, &token, app_version, &protection);
     // cwd = sidecar/ (dist/main.js → ..): the sidecar resolves its own modules from there.
     // The engine's environment is scrubbed by the sidecar itself (environment.ts), whoever spawns it.
     let sidecar_dir = paths
@@ -126,6 +183,13 @@ pub fn spawn_sidecar(
         st.running = true;
         st.exit_code = None;
         st.ready = None;
+        st.restart_requested = false;
+        st.spawn = Some(SpawnParams {
+            paths: paths.clone(),
+            ports,
+            token: token.clone(),
+            app_version: app_version.to_string(),
+        });
     }
     emit_status(app);
     let handle = app.clone();
@@ -142,6 +206,13 @@ pub fn spawn_sidecar(
                         };
                         handle.state::<Mutex<SidecarState>>().lock().unwrap().ready = Some(info);
                         emit_status(&handle);
+                    } else if parse_restart_line(&line) {
+                        handle
+                            .state::<Mutex<SidecarState>>()
+                            .lock()
+                            .unwrap()
+                            .restart_requested = true;
+                        println!("[shell] the engine asked to be restarted");
                     } else {
                         print!("[sidecar] {line}");
                     }
@@ -150,15 +221,29 @@ pub fn spawn_sidecar(
                     eprint!("[sidecar] {}", String::from_utf8_lossy(&bytes))
                 }
                 CommandEvent::Terminated(payload) => {
-                    {
+                    let (action, params) = {
                         let state = handle.state::<Mutex<SidecarState>>();
                         let mut st = state.lock().unwrap();
                         st.ready = None;
                         st.child = None;
                         st.running = false;
                         st.exit_code = payload.code;
+                        let action = exit_action(st.restart_requested);
+                        st.restart_requested = false;
+                        (action, st.spawn.clone())
+                    };
+                    match (action, params) {
+                        (ExitAction::Respawn, Some(p)) => {
+                            println!("[shell] restarting the engine");
+                            if let Err(e) =
+                                spawn_sidecar(&handle, &p.paths, p.ports, p.token, &p.app_version)
+                            {
+                                eprintln!("[shell] could not restart the engine: {e}");
+                                emit_status(&handle);
+                            }
+                        }
+                        _ => emit_status(&handle),
                     }
-                    emit_status(&handle);
                 }
                 _ => {}
             }
@@ -208,6 +293,7 @@ pub fn sidecar_info(state: tauri::State<'_, Mutex<SidecarState>>) -> SidecarStat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::LocalProtection;
     use std::path::PathBuf;
 
     fn ready() -> ReadyInfo {
@@ -268,7 +354,7 @@ mod tests {
             sidecar: 4301,
             control: 4302,
         };
-        let env = SidecarEnv::build(&paths, &ports, "tok", "0.1.0");
+        let env = SidecarEnv::build(&paths, &ports, "tok", "0.1.0", &LocalProtection::default());
         let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
         assert_eq!(
             get("KV_DATA_DIR").as_deref(),
@@ -284,5 +370,49 @@ mod tests {
         assert_eq!(get("KV_APP_VERSION").as_deref(), Some("0.1.0"));
         assert_eq!(get("KV_STDIN_STOP").as_deref(), Some("1"));
         assert!(get("KV_PROTECTED").is_none());
+        assert!(get("KV_ADMIN_ADDRESS").is_none());
+    }
+
+    #[test]
+    fn env_carries_protection_only_with_an_administrator() {
+        let paths = AppPaths {
+            data_dir: PathBuf::from("/data"),
+            sidecar_main: PathBuf::from("/app/sidecar/dist/main.js"),
+        };
+        let ports = Ports {
+            host: 4200,
+            sidecar: 4201,
+            control: 4202,
+        };
+        let protected = LocalProtection {
+            protected: true,
+            admin_address: Some("0xabc".into()),
+        };
+        let env = SidecarEnv::build(&paths, &ports, "tok", "0.1.0", &protected);
+        let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
+        assert_eq!(get("KV_PROTECTED").as_deref(), Some("1"));
+        assert_eq!(get("KV_ADMIN_ADDRESS").as_deref(), Some("0xabc"));
+        let half = LocalProtection {
+            protected: true,
+            admin_address: None,
+        };
+        let env = SidecarEnv::build(&paths, &ports, "tok", "0.1.0", &half);
+        assert!(
+            env.iter()
+                .all(|(k, _)| k != "KV_PROTECTED" && k != "KV_ADMIN_ADDRESS")
+        );
+    }
+
+    #[test]
+    fn a_restart_line_means_respawn_and_anything_else_means_exited() {
+        assert!(parse_restart_line(
+            r#"{"event":"restart","reason":"protection"}"#
+        ));
+        assert!(!parse_restart_line(
+            r#"{"event":"ready","port":4201,"controlPort":4202}"#
+        ));
+        assert!(!parse_restart_line("[sidecar] restarting the converter"));
+        assert_eq!(exit_action(true), ExitAction::Respawn);
+        assert_eq!(exit_action(false), ExitAction::Exited);
     }
 }

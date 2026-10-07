@@ -55,10 +55,15 @@ export function activate(target: Target): GraphQLReactorClient {
   return client;
 }
 
-/** Once per page: the packages, then the local engine as the active target. */
-export function installReactor(info: SidecarInfo, packages: readonly DocumentModelLib[]): GraphQLReactorClient {
+/**
+ * The packages, then the local engine as the active target. Runs again after the
+ * engine restarted (the protection switch): the local client is rebuilt, because
+ * its bearer is bound at creation and a protected engine needs one.
+ */
+export function installReactor(info: SidecarInfo, packages: readonly DocumentModelLib[], tokenProvider?: Target["tokenProvider"]): GraphQLReactorClient {
   ensurePHEventHandlers();
   libs = packages;
   setVetraPackageManager(new StaticPackageManager(packages));
-  return activate({ origin: info.origin });
+  clients.delete(info.origin);
+  return activate({ origin: info.origin, ...(tokenProvider ? { tokenProvider } : {}) });
 }

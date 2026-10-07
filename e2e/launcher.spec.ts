@@ -28,11 +28,17 @@ test("launcher: full view inside a vault, rename from the ⋯ menu, Settings sec
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
   await expect(page.getByText("Launcher vault renamed")).toBeVisible();
+  // Protection (spec §4.4): offered, but disabled with the reason until the user signs in.
+  const protect = page.getByRole("button", { name: "Protect local vaults" });
+  await expect(protect).toBeVisible();
+  await expect(protect).toBeDisabled();
+  await expect(page.getByText(/Sign in first/)).toBeVisible();
   await page.getByRole("button", { name: "Models" }).click();
   await expect(page.getByLabel("Endpoint")).toBeVisible();
   await page.getByRole("button", { name: "Diagnostics" }).click();
   await expect(page.getByText(/Ready on port 4201/)).toBeVisible();
   await expect(page.getByText("http://127.0.0.1:4201/mcp")).toBeVisible();
+  await expect(page.getByText(/switchboard init --url http:\/\/127\.0\.0\.1:4201\/graphql/)).toBeVisible(); // Connect your tools names the live port
   await page.getByRole("button", { name: "Appearance" }).click();
   await expect(page.getByLabel(/^Dark/)).toBeChecked();
   await page.getByRole("button", { name: "← Vaults" }).click();

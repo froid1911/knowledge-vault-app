@@ -71,6 +71,8 @@ type Props = {
   onNewVaultDone?: () => void;
   api?: LandingApi;
   storage?: Storage;
+  /** The user's bearer for a protected local engine (spec §4.4); its tiles then fetch as remote ones do. */
+  localBearer?: () => Promise<string | undefined>;
 };
 
 /**
@@ -78,7 +80,7 @@ type Props = {
  * recently opened one largest; on first run, the inline create form; the
  * engine's state in a strip at the bottom. Never a workspace.
  */
-export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdentity, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage }: Props) {
+export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdentity, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage, localBearer }: Props) {
   const store = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const [vaults, setVaults] = useState<VaultSummary[] | null>(null);
   const [remotes, setRemotes] = useState<RemoteVault[] | null>(null);
@@ -96,6 +98,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
   const [removing, setRemoving] = useState<RemoteVault | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const tokenProvider = useMemo(() => (info && api.tokenProvider ? api.tokenProvider(info) : undefined), [api, info]);
+  const localFetch = useMemo(() => (localBearer ? authorizedFetch(localBearer) : undefined), [localBearer]);
 
   useEffect(() => setShowForm(newVault), [newVault]);
   const closeForm = () => {
@@ -135,7 +138,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
       if (requested.current.has(v.id)) continue;
       requested.current.add(v.id);
       const origin = v.kind === "remote" ? v.switchboardUrl : info.origin;
-      const fetchImpl = v.kind === "remote" && tokenProvider ? authorizedFetch(tokenProvider) : undefined;
+      const fetchImpl = v.kind === "remote" ? (tokenProvider ? authorizedFetch(tokenProvider) : undefined) : localFetch;
       api
         .fetchGraph(origin, v.id, i === 0 ? 48 : 28, fetchImpl)
         .then((s) => setSamples((prev) => ({ ...prev, [v.id]: s })))
@@ -145,7 +148,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
         .then((l) => setLayouts((prev) => ({ ...prev, [v.id]: l })))
         .catch(() => setLayouts((prev) => ({ ...prev, [v.id]: null })));
     }
-  }, [api, info, vaults, ordered, tokenProvider]);
+  }, [api, info, vaults, ordered, tokenProvider, localFetch]);
 
   // The whole graph, only for vaults the person has laid out (a saved layout exists) and once the
   // sample told us the graph's size — the cache key — so a vault is downloaded once per session.
@@ -165,7 +168,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
         setFulls((prev) => ({ ...prev, [v.id]: cached }));
         continue;
       }
-      const fetchImpl = v.kind === "remote" && tokenProvider ? authorizedFetch(tokenProvider) : undefined;
+      const fetchImpl = v.kind === "remote" ? (tokenProvider ? authorizedFetch(tokenProvider) : undefined) : localFetch;
       api
         .fetchFullGraph(origin, v.id, fetchImpl)
         .then((g) => {
@@ -174,7 +177,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
         })
         .catch(() => {});
     }
-  }, [api, info, ordered, layouts, samples, tokenProvider]);
+  }, [api, info, ordered, layouts, samples, tokenProvider, localFetch]);
 
   const open = useCallback(
     (v: AnyVault) => {

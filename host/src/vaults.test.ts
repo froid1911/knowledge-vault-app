@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createVault, fetchVaults } from "./vaults.js";
+import { createVault, fetchProtection, fetchVaults, setProtection } from "./vaults.js";
 
 const info = { origin: "http://127.0.0.1:4201", graphqlUrl: "http://127.0.0.1:4201/graphql", controlOrigin: "http://127.0.0.1:4202", controlToken: "secret" };
 
@@ -15,5 +15,21 @@ describe("vault list / create over the control API", () => {
   it("reports the engine's error message when creation fails", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: "Forbidden" }) })) as unknown as typeof fetch;
     await expect(createVault(info, "X", fetchImpl)).rejects.toThrow("Forbidden");
+  });
+});
+
+describe("local protection over the control API", () => {
+  it("reads the switch and asks for a change with a boolean body", async () => {
+    const fetchImpl = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => ({
+      ok: true,
+      status: init?.method === "PUT" ? 202 : 200,
+      json: async () => (init?.method === "PUT" ? { restarting: true, protected: true, adminAddress: "0xabc" } : { protected: false, adminAddress: null }),
+    })) as unknown as typeof fetch;
+    expect(await fetchProtection(info, fetchImpl)).toEqual({ protected: false, adminAddress: null });
+    expect(await setProtection(info, true, fetchImpl)).toEqual({ restarting: true, protected: true, adminAddress: "0xabc" });
+    const calls = (fetchImpl as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    expect(calls[0]![0]).toBe("http://127.0.0.1:4202/local/protection");
+    expect(calls[1]![1].method).toBe("PUT");
+    expect(JSON.parse(String(calls[1]![1].body))).toEqual({ protected: true });
   });
 });

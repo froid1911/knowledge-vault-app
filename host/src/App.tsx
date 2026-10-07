@@ -2,7 +2,7 @@ import { RenownProvider, type GraphQLReactorClient } from "@powerhousedao/reacto
 import * as knowledgeNote from "@powerhousedao/knowledge-note";
 import * as workflow from "@powerhousedao/workflow";
 import type { DocumentModelLib } from "document-model";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useIdentity } from "./state/use-identity.js";
 import { fetchRemoteVaults, type RemoteVault } from "./api/remote.js";
 import { declareDesktopHost } from "./bootstrap.js";
@@ -14,6 +14,7 @@ import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
 import { useRoute } from "./shell/router.js";
 import { matchShortcut } from "./shell/shortcuts.js";
 import type { SidecarInfo } from "./sidecar.js";
+import type { TokenProvider } from "./api/identity.js";
 
 /** The packages the host mounts; boot.tsx installs the reactor with their document models, once. */
 export const LIBS: readonly DocumentModelLib[] = [
@@ -21,7 +22,7 @@ export const LIBS: readonly DocumentModelLib[] = [
   workflow as unknown as DocumentModelLib,
 ];
 
-export function App({ info, client }: { info: SidecarInfo; client: GraphQLReactorClient }) {
+export function App({ info, client, bearer }: { info: SidecarInfo; client: GraphQLReactorClient; bearer?: TokenProvider }) {
   const [route, navigate] = useRoute();
   const toVaults = useCallback(() => navigate({ name: "vaults" }), [navigate]);
   const toSettings = useCallback(() => navigate({ name: "settings", section: "vaults" }), [navigate]);
@@ -39,13 +40,13 @@ export function App({ info, client }: { info: SidecarInfo; client: GraphQLReacto
   }, [inWorkspace, route.name, identity.refresh]);
   // The vault package reads who we are from the host declaration (gate, Access view, live feed).
   // A remote workspace declares its own origin and bearer while it is open.
+  // A protected local engine (spec §4.4) is declared with the user's bearer, open with none; coming
+  // back from a remote vault re-declares the local engine (the remote screen declared its own).
   const inRemote = route.name === "remote";
-  const inRemoteRef = useRef(inRemote);
-  inRemoteRef.current = inRemote;
   useEffect(() => {
-    if (inRemoteRef.current) return; // the remote screen is the sole declarer while it is open
-    declareDesktopHost(info.origin, { identity: hostIdentity });
-  }, [info.origin, hostIdentity]);
+    if (inRemote) return; // the remote screen is the sole declarer while it is open
+    declareDesktopHost(info.origin, { identity: hostIdentity, ...(bearer ? { bearer } : {}) });
+  }, [info.origin, hostIdentity, inRemote, bearer]);
 
   // Shortcuts only on the shell's own screens: a workspace app owns its keys.
   useEffect(() => {
@@ -88,6 +89,7 @@ export function App({ info, client }: { info: SidecarInfo; client: GraphQLReacto
           onOpen={(v) => navigate({ name: "vault", id: v.id })}
           onWorkflows={toWorkflows}
           onSettings={toSettings}
+          localBearer={bearer}
         />
       );
   }

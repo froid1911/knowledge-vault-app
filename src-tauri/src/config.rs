@@ -1,5 +1,41 @@
+use serde::Deserialize;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Spec §4.4: the `local` section of the sidecar-owned config.json — read by the shell to build
+/// KV_PROTECTED/KV_ADMIN_ADDRESS at spawn; the sidecar writes it (PUT /local/protection).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LocalProtection {
+    pub protected: bool,
+    pub admin_address: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ConfigFile {
+    local: LocalProtection,
+}
+
+impl LocalProtection {
+    /// Open when the file or the section is missing or unreadable, and when protection names no
+    /// administrator (such an engine refuses to start — the sidecar requires KV_ADMIN_ADDRESS).
+    pub fn load(path: &Path) -> LocalProtection {
+        let mut protection = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<ConfigFile>(&text).ok())
+            .map(|file| file.local)
+            .unwrap_or_default();
+        if protection
+            .admin_address
+            .as_deref()
+            .is_none_or(str::is_empty)
+        {
+            protection.protected = false;
+        }
+        protection
+    }
+}
 
 #[derive(Clone)]
 pub struct AppPaths {
@@ -52,6 +88,26 @@ mod tests {
         let picked = pick_free_port(start);
         assert_ne!(picked, start);
         assert!(picked > start && picked <= start + 20);
+    }
+
+    #[test]
+    fn local_protection_defaults_when_missing_and_reads_the_camel_case_section() {
+        let dir = std::env::temp_dir().join(format!("kv-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_file(&path);
+        let missing = LocalProtection::load(&path);
+        assert!(!missing.protected);
+        assert!(missing.admin_address.is_none());
+        std::fs::write(&path, r#"{"version":1,"models":{"model":"x"},"local":{"protected":true,"adminAddress":"0xabc"}}"#).unwrap();
+        let p = LocalProtection::load(&path);
+        assert!(p.protected);
+        assert_eq!(p.admin_address.as_deref(), Some("0xabc"));
+        // A section without an administrator cannot start a protected engine: read as open.
+        std::fs::write(&path, r#"{"local":{"protected":true}}"#).unwrap();
+        assert!(!LocalProtection::load(&path).protected);
+        std::fs::write(&path, "{nope").unwrap();
+        assert!(!LocalProtection::load(&path).protected);
     }
 
     #[test]

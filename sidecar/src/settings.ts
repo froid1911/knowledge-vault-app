@@ -117,3 +117,25 @@ export function writeSettings(dataDir: string, patch: SettingsPatch): AppSetting
 export function hasConfig(dataDir: string): boolean {
   return existsSync(configPath(dataDir));
 }
+
+/** Spec §4.4: one switch for the local engine — protected means the signed-in Renown identity administers every local vault. */
+export type LocalProtection = { protected: boolean; adminAddress: string | null };
+
+/** The `local` section of config.json. Protected without an administrator cannot start the engine, so it reads as open. */
+export function readLocalProtection(dataDir: string): LocalProtection {
+  const raw = readRaw(dataDir);
+  const local = (raw.local && typeof raw.local === "object" ? raw.local : {}) as Record<string, unknown>;
+  const adminAddress = typeof local.adminAddress === "string" && local.adminAddress ? local.adminAddress : null;
+  return { protected: local.protected === true && adminAddress !== null, adminAddress };
+}
+
+export function writeLocalProtection(dataDir: string, protection: LocalProtection): LocalProtection {
+  if (protection.protected && !protection.adminAddress) throw new SettingsError("Protection needs the signed-in administrator's address.");
+  const raw = readRaw(dataDir);
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    configPath(dataDir),
+    JSON.stringify({ ...raw, version: 1, local: { protected: protection.protected, adminAddress: protection.adminAddress } }, null, 2) + "\n",
+  );
+  return readLocalProtection(dataDir);
+}

@@ -15,8 +15,9 @@ test("create a vault on the landing and open the Knowledge Vault app against the
   // First run shows the form; with vaults already present (another spec ran first) "New vault" opens it.
   const newVault = page.getByRole("button", { name: "New vault" });
   if (await newVault.isVisible().catch(() => false)) await newVault.click();
+  // Keyboard only: type the name, Enter creates and opens (spec §5.7 — nothing else is required).
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("E2E vault");
-  await page.getByRole("button", { name: "Create vault" }).click();
+  await page.keyboard.press("Enter");
 
   // The vault app (from @powerhousedao/knowledge-note) renders its sidebar.
   await expect(page.getByText("Notes", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
@@ -26,6 +27,7 @@ test("create a vault on the landing and open the Knowledge Vault app against the
   await page.getByRole("button", { name: "← Vaults" }).click();
   await expect(page.getByRole("button", { name: "Open E2E vault" })).toBeVisible();
   await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Everything stays on this computer/)).toBeVisible(); // the status strip's privacy sentence (spec §5.7)
   await page.screenshot({ path: "test-results/landing-with-vault.png" });
   expect(foreign, "only the three loopback ports may be contacted").toEqual([]);
 });

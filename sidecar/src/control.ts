@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
-import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch } from "./settings.js";
+import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch, type LocalProtection } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 
 export type StatusPayload = {
@@ -12,6 +12,8 @@ export type StatusPayload = {
   controlPort: number;
   appVersion: string;
   protected: boolean;
+  /** The administrator when protected (spec §4.4). */
+  adminAddress?: string | null;
   /** For Diagnostics and About (spec §5.2). */
   dataDir: string;
   stackVersion: string;
@@ -28,6 +30,11 @@ export type ControlDeps = {
   workflowsDrive: () => Promise<DriveRef>;
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
+  /** Spec §4.4: the protection switch. `set` writes config.json's `local` section and schedules the engine's restart. */
+  protection: {
+    get: () => LocalProtection;
+    set: (wanted: boolean) => Promise<LocalProtection & { restarting?: boolean }>;
+  };
   /** Plan 4: the conversion helper; a saved conversion setting is applied right after it is written. */
   converter: {
     status: () => Promise<ConverterStatus>;
@@ -158,6 +165,13 @@ export function createControlServer(deps: ControlDeps) {
         return send(res, 200, { deleted: id }, allowed);
       }
       if (req.method === "GET" && url.pathname === "/workflows") return send(res, 200, { drive: await deps.workflowsDrive() }, allowed);
+      if (req.method === "GET" && url.pathname === "/local/protection") return send(res, 200, deps.protection.get(), allowed);
+      if (req.method === "PUT" && url.pathname === "/local/protection") {
+        const body = await readJson(req);
+        if (typeof body.protected !== "boolean") return send(res, 400, { error: "`protected` must be true or false." }, allowed);
+        const result = await deps.protection.set(body.protected);
+        return send(res, 202, { restarting: true, ...result }, allowed);
+      }
       if (req.method === "GET" && url.pathname === "/settings") return send(res, 200, deps.readSettings(), allowed);
       if (req.method === "PUT" && url.pathname === "/settings") {
         const patch = settingsPatch(await readJson(req));

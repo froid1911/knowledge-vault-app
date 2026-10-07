@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { readyLine, waitForHealth } from "./ready.js";
+import { readyLine, restartLine, waitForHealth } from "./ready.js";
 
 describe("readyLine", () => {
   it("is one JSON line the shell can parse", () => {
@@ -20,5 +20,12 @@ describe("waitForHealth", () => {
     await expect(
       waitForHealth("http://127.0.0.1:1/health", { timeoutMs: 20, intervalMs: 5, fetchImpl }),
     ).rejects.toThrow(/http:\/\/127\.0\.0\.1:1\/health/);
+  });
+});
+
+describe("restartLine", () => {
+  it("is one JSON line naming the reason, for whoever spawned the engine to respawn it", () => {
+    expect(JSON.parse(restartLine("protection"))).toEqual({ event: "restart", reason: "protection" });
+    expect(restartLine("protection").includes("\n")).toBe(false);
   });
 });

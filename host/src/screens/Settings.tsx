@@ -1,5 +1,6 @@
 import type { SidecarInfo } from "../sidecar.js";
-import { deleteVault, fetchConverter, fetchSettings, fetchStatus, fetchVaults, installConverterComponent, removeConverterComponent, renameVault, restartConverter, saveSettings, type AppSettings, type ConverterComponent, type ConverterStatus, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary } from "../vaults.js";
+import { deleteVault, fetchConverter, fetchSettings, fetchStatus, fetchVaults, installConverterComponent, removeConverterComponent, renameVault, restartConverter, saveSettings, type AppSettings, type ConverterComponent, type ConverterStatus, type DriveRef, type EngineStatus, type SettingsPatch, type VaultSummary, fetchProtection, setProtection } from "../vaults.js";
+import type { LocalProtection } from "../vaults.js";
 import { AppBar } from "../shell/AppBar.js";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../shell/router.js";
 import { AboutSection } from "../settings/About.js";
@@ -19,12 +20,16 @@ export type SettingsApi = {
   fetchSettings: (info: SidecarInfo) => Promise<AppSettings>;
   saveSettings: (info: SidecarInfo, patch: SettingsPatch) => Promise<AppSettings>;
   fetchStatus: (info: SidecarInfo) => Promise<EngineStatus>;
+  fetchProtection: (info: SidecarInfo) => Promise<LocalProtection>;
+  setProtection: (info: SidecarInfo, wanted: boolean) => Promise<LocalProtection & { restarting: boolean }>;
   fetchConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
   restartConverter: (info: SidecarInfo) => Promise<ConverterStatus>;
   installConverter: (info: SidecarInfo, component: ConverterComponent) => Promise<ConverterStatus>;
   removeConverter: (info: SidecarInfo, component: ConverterComponent) => Promise<ConverterStatus>;
 };
 export const realSettingsApi: SettingsApi = {
+  fetchProtection,
+  setProtection,
   fetchVaults,
   renameVault,
   deleteVault,
@@ -73,7 +78,7 @@ export function Settings({ info, section, onSection, onBack, onOpenWorkflows, ap
         </nav>
         <section className="kv-settings-panel" aria-labelledby="settings-section-heading">
           <h2 id="settings-section-heading" className="kv-settings-heading">{LABELS[section]}</h2>
-          {section === "vaults" && <VaultsSection info={info} api={api} />}
+          {section === "vaults" && <VaultsSection info={info} api={api} identity={identity} />}
           {section === "appearance" && <AppearanceSection />}
           {section === "models" && <ModelsSection info={info} api={api} />}
           {section === "conversion" && <ConversionSection info={info} api={api} />}

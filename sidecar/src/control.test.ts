@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ConverterBusyError, ConverterInputError } from "./converter.js";
 import { createControlServer } from "./control.js";
-import type { AppSettings } from "./settings.js";
+import { SettingsError, type AppSettings } from "./settings.js";
 import { RemoteAuthError, RemoteInputError, type RemoteVault } from "./remote.js";
 import { NotAVaultError, type VaultSummary } from "./vaults.js";
 
@@ -15,7 +15,9 @@ let applied: AppSettings["conversion"][] = [];
 let restarted = 0;
 const converterStatus = { mode: "local" as const, state: "ready" as const, url: "http://127.0.0.1:5999", localUrl: "http://127.0.0.1:5999", pid: 4242, exitCode: null, restarts: 0, logPath: "/data/vault/logs/converter.log", health: { ok: true, binding: false }, error: null, installed: { binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu" as const, reason: null }, models: { installed: false } }, job: null };
 let installed: string[] = [];
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
+let protection: { protected: boolean; adminAddress: string | null } = { protected: false, adminAddress: null };
+let restartsRequested = 0;
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
 
 async function start() {
   const server = createControlServer({
@@ -39,6 +41,15 @@ async function start() {
       check: async (url, drive) => { if (!url.startsWith("http")) throw new RemoteInputError("Enter the vault's address as a URL."); if (!signedIn) throw new RemoteAuthError("Sign in first."); return { id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, access: "write" }; },
       add: async (url, drive) => { const v: RemoteVault = { kind: "remote", id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, addedAt: "2026-10-06T12:00:00.000Z" }; remotes = [v]; return v; },
       remove: (id) => { remotes = remotes.filter((v) => v.id !== id); },
+    },
+    protection: {
+      get: () => protection,
+      set: async (p: boolean) => {
+        if (p && !signedIn) throw new SettingsError("Sign in first — protection makes your Renown identity the vaults' administrator.");
+        protection = { protected: p, adminAddress: p ? "0xabc" : protection.adminAddress };
+        restartsRequested += 1;
+        return protection;
+      },
     },
     readSettings: () => settings,
     writeSettings: (patch) => { settings = { ...settings, models: { ...settings.models, ...(patch.models?.endpoint ? { endpoint: patch.models.endpoint } : {}), ...(patch.models?.model !== undefined ? { model: patch.models.model } : {}), ...(patch.models?.apiKey !== undefined ? { hasKey: !!patch.models.apiKey } : {}) }, conversion: { ...settings.conversion, ...(patch.conversion ?? {}) } }; return settings; },
@@ -193,5 +204,31 @@ describe("control API", () => {
     expect((await fetch(`${base}/converter/install`, { method: "POST", headers: h, body: "{}" })).status).toBe(400);
     expect((await fetch(`${base}/converter/remove`, { method: "POST", headers: h, body: JSON.stringify({ component: "binding" }) })).status).toBe(200);
     expect(installed).toEqual([]);
+  });
+});
+
+describe("local protection", () => {
+  const h = { authorization: "Bearer secret", "content-type": "application/json" };
+  it("reports the switch and refuses to protect without a sign-in", async () => {
+    const base = await start();
+    expect(await (await fetch(`${base}/local/protection`, { headers: h })).json()).toEqual({ protected: false, adminAddress: null });
+    const refused = await fetch(`${base}/local/protection`, { method: "PUT", headers: h, body: JSON.stringify({ protected: true }) });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "Sign in first — protection makes your Renown identity the vaults' administrator." });
+    expect(restartsRequested).toBe(0);
+  });
+  it("switches protection on for the signed-in administrator and announces the restart", async () => {
+    signedIn = true;
+    const base = await start();
+    const res = await fetch(`${base}/local/protection`, { method: "PUT", headers: h, body: JSON.stringify({ protected: true }) });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ restarting: true, protected: true, adminAddress: "0xabc" });
+    expect(restartsRequested).toBe(1);
+    expect(await (await fetch(`${base}/local/protection`, { headers: h })).json()).toEqual({ protected: true, adminAddress: "0xabc" });
+  });
+  it("wants a boolean", async () => {
+    const base = await start();
+    const res = await fetch(`${base}/local/protection`, { method: "PUT", headers: h, body: JSON.stringify({ protected: "yes" }) });
+    expect(res.status).toBe(400);
   });
 });

@@ -57,6 +57,9 @@ describe("switchboardEnv", () => {
     expect(env.KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("local");
     expect(switchboardEnv(readSidecarConfig(base), "wfkey", "did:key:z6MkEngine").KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("did:key:z6MkEngine");
   });
+  it("sets no exemption in open mode — the reactor refuses one while the floor is off", () => {
+    expect("REQUIRE_AUTHENTICATED_CALLER_EXEMPT_PATHS" in switchboardEnv(readSidecarConfig(base), "wfkey")).toBe(false);
+  });
   it("turns the four auth flags on with the admin address in protected mode", () => {
     const env = switchboardEnv(
       readSidecarConfig({ ...base, KV_PROTECTED: "1", KV_ADMIN_ADDRESS: "0xabc" }),
@@ -67,6 +70,8 @@ describe("switchboardEnv", () => {
     expect(env.DEFAULT_PROTECTION).toBe("true");
     expect(env.DOCUMENT_PERMISSIONS_ENABLED).toBe("true");
     expect(env.ADMINS).toBe("0xabc");
+    // /health is how the sidecar knows the engine is up; under the authenticated-caller floor it would answer 401.
+    expect(env.REQUIRE_AUTHENTICATED_CALLER_EXEMPT_PATHS).toBe("/health");
     // Protected mode never declares open mode — the guard then requires a real bearer.
     expect("KNOWLEDGE_VAULT_OPEN_MODE" in env).toBe(false);
     expect("KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS" in env).toBe(false);

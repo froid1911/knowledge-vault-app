@@ -55,3 +55,18 @@ describe("Boot", () => {
     expect(screen.getByText("chunk missing")).toBeTruthy();
   });
 });
+
+describe("Boot — the engine restarts", () => {
+  it("loads the vault app again once the engine is ready after a restart", async () => {
+    const w = fakeWatcher();
+    const load = vi.fn(async () => ({ App: () => <p>the app</p>, client: {} as never }));
+    render(<Boot watch={w.watch} load={load} />);
+    w.emit({ state: "ready", info });
+    await waitFor(() => expect(screen.getByText("the app")).toBeTruthy());
+    w.emit({ state: "starting" });
+    expect(screen.getByText("Starting the engine…")).toBeTruthy();
+    w.emit({ state: "ready", info });
+    await waitFor(() => expect(screen.getByText("the app")).toBeTruthy());
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+});

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readModelKey, readSettings, SettingsError, writeSettings } from "./settings.js";
+import { readLocalProtection, readModelKey, readSettings, SettingsError, writeLocalProtection, writeSettings } from "./settings.js";
 
 const dir = () => mkdtempSync(join(tmpdir(), "kv-settings-"));
 
@@ -55,5 +55,26 @@ describe("settings", () => {
     const raw = JSON.parse(readFileSync(join(d, "config.json"), "utf8")) as Record<string, unknown>;
     expect(raw.ui).toEqual({ theme: "dark" });
     expect(raw.vaults).toEqual([]);
+  });
+});
+
+describe("local protection (spec §4.4: one switch for the local engine)", () => {
+  it("is open by default, with no administrator", () => {
+    expect(readLocalProtection(dir())).toEqual({ protected: false, adminAddress: null });
+  });
+  it("round-trips through config.json in camelCase and keeps the other sections", () => {
+    const d = dir();
+    writeSettings(d, { models: { model: "llama3" } });
+    const out = writeLocalProtection(d, { protected: true, adminAddress: "0xabc" });
+    expect(out).toEqual({ protected: true, adminAddress: "0xabc" });
+    expect(readLocalProtection(d)).toEqual({ protected: true, adminAddress: "0xabc" });
+    const text = readFileSync(join(d, "config.json"), "utf8");
+    expect(text).toContain('"adminAddress"');
+    expect(readSettings(d).models.model).toBe("llama3");
+    // Switching back keeps the administrator on record.
+    expect(writeLocalProtection(d, { protected: false, adminAddress: "0xabc" })).toEqual({ protected: false, adminAddress: "0xabc" });
+  });
+  it("refuses protection without an administrator", () => {
+    expect(() => writeLocalProtection(dir(), { protected: true, adminAddress: null })).toThrow(SettingsError);
   });
 });

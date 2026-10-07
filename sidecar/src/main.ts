@@ -11,15 +11,18 @@ import { checkRemoteVault, parseRemoteVaultInput, readRemoteVaults, RemoteInputE
 import { prepareDataDir } from "./data-dir.js";
 import { applyEnvironment, engineEnvironment } from "./environment.js";
 import { switchboardOptions } from "./options.js";
-import { readyLine, waitForHealth } from "./ready.js";
+import { readyLine, restartLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
 import { singleFlight } from "./single-flight.js";
-import { readSettings, writeSettings } from "./settings.js";
+import { readLocalProtection, readSettings, SettingsError, writeLocalProtection, writeSettings } from "./settings.js";
+import { authorizedFetch, createEngineTokenProvider } from "./authorized-fetch.js";
+import { ensureKyselyMigrationTables } from "./auth-tables.js";
 import { createVaultDrive, deleteVaultDrive, ensureWorkflowsDrive, listVaultDrives, renameVaultDrive } from "./vaults.js";
 
 // The data-dir storage swap must be registered before the Switchboard (and
 // through it @powerhousedao/pglite-fs) is imported — hence the dynamic import below.
-register(new URL("./nodefs-hooks.mjs", import.meta.url));
+// KV_PGLITE_SNAPSHOT_FS=1 keeps the Switchboard's own snapshot filesystem (diagnostics; costs memory).
+if (process.env.KV_PGLITE_SNAPSHOT_FS !== "1") register(new URL("./nodefs-hooks.mjs", import.meta.url));
 
 /**
  * The two packages the engine loads, as directories (spec §4.1). The loader
@@ -68,6 +71,11 @@ async function main(): Promise<void> {
   for (const dir of PACKAGE_DIRS) {
     if (!existsSync(dir)) throw new Error(`package directory missing: ${dir} (run \`bun install\` in sidecar/)`);
   }
+  // Spec §4.4: a store first opened without authentication lacks the auth migrator's tables (auth-tables.ts).
+  if (cfg.protected && process.env.KV_PGLITE_SNAPSHOT_FS !== "1") {
+    const prepared = await ensureKyselyMigrationTables(join(cfg.dataDir, "read-model"));
+    if (prepared.created) console.log("[sidecar] prepared the read-model database for the authorization tables (the store was first opened without authentication)");
+  }
   // Spec §4.7: never on the LAN. The Switchboard binds every interface and offers no host option;
   // a listen() for its port that names no host is bound to loopback (see loopback.ts).
   bindLoopbackOnly(cfg.port);
@@ -78,6 +86,9 @@ async function main(): Promise<void> {
   if (existsSync(options.identity.keypairPath)) chmodSync(options.identity.keypairPath, 0o600);
   const origin = `http://127.0.0.1:${switchboard.port}`;
   await waitForHealth(`${origin}/health`, { timeoutMs: 60_000, intervalMs: 250 });
+  // A protected engine answers only authenticated callers; our own management calls carry the
+  // administrator's token. An open engine gets plain fetch — no header, the anonymous owner.
+  const engineFetch = cfg.protected ? authorizedFetch(createEngineTokenProvider(identity)) : fetch;
 
   // Plan 4: the conversion helper. The engine is pointed at it through the vault
   // package's runtime setter, published on a well-known global by the convert
@@ -106,18 +117,45 @@ async function main(): Promise<void> {
       controlPort: cfg.controlPort,
       appVersion: cfg.appVersion,
       protected: cfg.protected,
+      adminAddress: cfg.adminAddress ?? null,
       dataDir: cfg.dataDir,
       stackVersion: STACK_VERSION,
       vaultPackageVersion: VAULT_PACKAGE_VERSION,
     }),
-    listVaults: () => listVaultDrives(origin),
-    createVault: (name) => createVaultDrive(origin, name),
-    renameVault: (id, name) => renameVaultDrive(origin, id, name),
-    deleteVault: (id) => deleteVaultDrive(origin, id),
+    listVaults: () => listVaultDrives(origin, engineFetch),
+    createVault: (name) => createVaultDrive(origin, name, engineFetch),
+    renameVault: (id, name) => renameVaultDrive(origin, id, name, engineFetch),
+    deleteVault: (id) => deleteVaultDrive(origin, id, engineFetch),
     // One create at a time: a React dev double-effect must not make two Workflows drives.
-    workflowsDrive: singleFlight(() => ensureWorkflowsDrive(origin)),
+    workflowsDrive: singleFlight(() => ensureWorkflowsDrive(origin, engineFetch)),
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
+    // Spec §4.4: the switch writes config.json's `local` section, answers, then the engine shuts down
+    // and prints a restart line — whoever spawned it (the shell, the dev loop) starts it again with
+    // KV_PROTECTED/KV_ADMIN_ADDRESS read from that section. The Switchboard's auth flags are fixed at
+    // start-up, so there is no in-process way to flip them.
+    protection: {
+      get: () => readLocalProtection(cfg.dataDir),
+      set: async (wanted) => {
+        const current = readLocalProtection(cfg.dataDir);
+        let adminAddress = current.adminAddress;
+        if (wanted) {
+          const who = await identity.status();
+          if (!who.authenticated || !who.address) throw new SettingsError("Sign in first — protection makes your Renown identity the vaults' administrator.");
+          adminAddress = who.address;
+        }
+        const written = writeLocalProtection(cfg.dataDir, { protected: wanted, adminAddress });
+        const restarting = written.protected !== cfg.protected || (wanted && adminAddress !== cfg.adminAddress);
+        if (restarting) {
+          // After the 202 has gone out.
+          setTimeout(() => {
+            process.stdout.write(restartLine("protection") + "\n");
+            process.kill(process.pid, "SIGINT");
+          }, 200).unref();
+        }
+        return { ...written, restarting };
+      },
+    },
     converter: {
       status: () => converter.status(),
       restart: () => converter.restart(),

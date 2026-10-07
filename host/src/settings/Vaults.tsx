@@ -3,12 +3,120 @@ import { DeleteVaultDialog } from "../landing/DeleteVaultDialog.js";
 import { RenameVaultDialog } from "../landing/RenameVaultDialog.js";
 import type { SettingsApi } from "../screens/Settings.js";
 import type { SidecarInfo } from "../sidecar.js";
-import type { VaultSummary } from "../vaults.js";
+import { shortAddress, type IdentityController } from "../state/use-identity.js";
+import type { LocalProtection, VaultSummary } from "../vaults.js";
 
 const number = new Intl.NumberFormat("en-US");
+const RESTART_GRACE_MS = 90_000;
 
-/** Every local vault with rename and delete — the complete list the tiles' ⋯ menus are a shortcut to. */
-export function VaultsSection({ info, api }: { info: SidecarInfo; api: SettingsApi }) {
+/**
+ * Spec §4.4: one switch for every local vault. Protecting makes the signed-in
+ * Renown identity their administrator; the engine restarts with authentication
+ * on, and the app reloads to talk to it as that identity.
+ */
+function ProtectionCard({ info, api, identity, pollMs, onRestarted }: { info: SidecarInfo; api: SettingsApi; identity: IdentityController; pollMs: number; onRestarted: () => void }) {
+  const [protection, setProtection] = useState<LocalProtection | null>(null);
+  const [restarting, setRestarting] = useState<{ target: boolean; adminAddress: string | null; startedAt: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const signedIn = identity.status?.authenticated === true && !!identity.status.address;
+
+  useEffect(() => {
+    let alive = true;
+    api.fetchProtection(info).then((p) => alive && setProtection(p)).catch((e: Error) => alive && setError(`Could not read the protection setting: ${e.message}`));
+    return () => {
+      alive = false;
+    };
+  }, [api, info]);
+
+  // While the engine restarts, ask /status until it answers with the new setting (or give up).
+  useEffect(() => {
+    if (!restarting) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const status = await api.fetchStatus(info);
+        if (!alive) return;
+        if (status.protected === restarting.target) {
+          setProtection({ protected: status.protected, adminAddress: status.adminAddress ?? restarting.adminAddress });
+          setRestarting(null);
+          onRestarted();
+          return;
+        }
+      } catch {
+        // not back yet
+      }
+      if (!alive) return;
+      if (Date.now() - restarting.startedAt > RESTART_GRACE_MS) {
+        setError("The engine did not come back within 90 seconds. Restart the app.");
+        setRestarting(null);
+        return;
+      }
+      timer = setTimeout(() => void tick(), pollMs);
+    };
+    timer = setTimeout(() => void tick(), pollMs);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [restarting, api, info, pollMs, onRestarted]);
+
+  async function toggle() {
+    if (!protection) return;
+    const target = !protection.protected;
+    setError(null);
+    try {
+      const result = await api.setProtection(info, target);
+      if (result.restarting) setRestarting({ target, adminAddress: result.adminAddress, startedAt: Date.now() });
+      else setProtection({ protected: result.protected, adminAddress: result.adminAddress });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const canProtect = signedIn;
+  return (
+    <section className="kv-identity-card" aria-labelledby="kv-protection-title">
+      <h2 id="kv-protection-title" className="kv-settings-subtitle">Protection</h2>
+      {protection === null && !error && <p className="kv-quiet">…</p>}
+      {protection && !restarting && (
+        <>
+          {protection.protected ? (
+            <p className="kv-settings-lead">
+              Local vaults are protected: the engine answers only your sign-in, and <span className="kv-mono">{shortAddress(protection.adminAddress ?? "")}</span> is their administrator. Every change is signed as you.
+            </p>
+          ) : (
+            <p className="kv-settings-lead">Local vaults are open: the engine answers anyone using this computer, and changes carry the app's own key. Protecting them makes your Renown identity their administrator.</p>
+          )}
+          <div className="kv-form-actions">
+            <button type="button" className="kv-button" disabled={!protection.protected && !canProtect} onClick={() => void toggle()}>
+              {protection.protected ? "Open local vaults" : "Protect local vaults"}
+            </button>
+            {!protection.protected && !canProtect && <span className="kv-hint">Sign in first — protection makes your Renown identity the vaults' administrator.</span>}
+          </div>
+        </>
+      )}
+      {restarting && <p role="status" className="kv-identity-waiting">Restarting the engine with the new setting…</p>}
+      {error && <p role="alert" className="kv-error">{error}</p>}
+    </section>
+  );
+}
+
+/** Every local vault with rename and delete — the complete list the tiles' ⋯ menus are a shortcut to — and the protection switch. */
+export function VaultsSection({
+  info,
+  api,
+  identity,
+  pollMs = 1000,
+  onRestarted = () => window.location.reload(),
+}: {
+  info: SidecarInfo;
+  api: SettingsApi;
+  identity: IdentityController;
+  pollMs?: number;
+  /** After the engine came back with the new setting: the app reloads to talk to the engine it now is. */
+  onRestarted?: () => void;
+}) {
   const [vaults, setVaults] = useState<VaultSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<VaultSummary | null>(null);
@@ -72,6 +180,7 @@ export function VaultsSection({ info, api }: { info: SidecarInfo; api: SettingsA
           ))}
         </ul>
       )}
+      <ProtectionCard info={info} api={api} identity={identity} pollMs={pollMs} onRestarted={onRestarted} />
       {renaming && <RenameVaultDialog name={renaming.name} busy={busy} error={dialogError} onSave={(n) => void rename(renaming, n)} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteVaultDialog name={deleting.name} noteCount={deleting.noteCount} busy={busy} error={dialogError} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
     </div>

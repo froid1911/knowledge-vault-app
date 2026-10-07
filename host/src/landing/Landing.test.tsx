@@ -149,3 +149,17 @@ describe("Landing", () => {
     expect(freshTile.querySelector(".kv-minimap")).toBeNull();
   });
 });
+
+describe("Landing — a protected local engine", () => {
+  it("gives the local tiles' graph requests the user's bearer, as it does for remote vaults", async () => {
+    const a = api({ fetchVaults: vi.fn(async () => [{ id: "v1", slug: "a", name: "Alpha", noteCount: 3 }]) });
+    // authorizedFetch binds the global fetch when it is created (at render), so the spy goes in first.
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    render(<Landing engine={{ state: "ready" }} info={info} api={a} storage={memoryStorage()} localBearer={async () => "jwt"} />);
+    await waitFor(() => expect(a.fetchGraph).toHaveBeenCalled());
+    const fetchImpl = (a.fetchGraph as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![3] as typeof fetch | undefined;
+    expect(typeof fetchImpl).toBe("function");
+    await fetchImpl!("http://127.0.0.1:4301/graphql/knowledgeGraph", { method: "POST" });
+    expect(new Headers(spy.mock.calls[0]![1]?.headers).get("authorization")).toBe("Bearer jwt");
+  });
+});
