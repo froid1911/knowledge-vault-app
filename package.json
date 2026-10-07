@@ -19,7 +19,10 @@
     "e2e": "playwright test",
     "sync:converter": "node scripts/sync-converter.mjs",
     "converter:check": "node scripts/sync-converter.mjs --check",
-    "bundle:inputs": "node scripts/ensure-bundle-inputs.mjs"
+    "bundle:inputs": "node scripts/ensure-bundle-inputs.mjs",
+    "versions:check": "node scripts/check-versions.mjs",
+    "build:app": "node scripts/check-versions.mjs && bun run build:host && bun run build:sidecar && node scripts/stage-sidecar.mjs && node scripts/fetch-node.mjs && node -e \"require('fs').rmSync('src-tauri/target/release/bundle', { recursive: true, force: true })\" && bunx @tauri-apps/cli build",
+    "smoke:app": "node scripts/smoke-app.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

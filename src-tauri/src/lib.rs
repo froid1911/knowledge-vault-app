@@ -3,6 +3,7 @@ mod config;
 mod log_tail;
 mod navigation;
 mod sidecar;
+mod smoke;
 mod tray;
 
 use config::{
@@ -189,6 +190,10 @@ pub fn run() {
                 new_control_token(),
                 env!("CARGO_PKG_VERSION"),
             )?;
+            if std::env::var("KV_SMOKE").as_deref() == Ok("1") {
+                let h = handle.clone();
+                std::thread::spawn(move || smoke::watch(h, host_port));
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

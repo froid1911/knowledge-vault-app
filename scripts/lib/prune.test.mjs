@@ -27,6 +27,12 @@ const FILES = [
   "pkg/index.d.mts",
   "pkg/LICENSE",
   "pkg/README.md",
+  "@datadog/pprof/prebuilds/linux-x64/dd_pprof.node.abi137.node",
+  "@datadog/pprof/prebuilds/linux-x64/dd_pprof.musl.node.abi137.node",
+  "@datadog/pprof/prebuilds/linux-arm64/dd_pprof.node.abi137.node",
+  "@datadog/pprof/prebuilds/darwin-arm64/dd_pprof.node.abi137.node",
+  "@datadog/pprof/prebuilds/win32-x64/dd_pprof.node.abi137.node",
+  "@datadog/pprof/out/src/index.js",
 ];
 function tree() {
   const nm = join(mkdtempSync(join(tmpdir(), "kv-prune-")), "node_modules");
@@ -56,5 +62,16 @@ describe("prune", () => {
   });
   it("refuses a target it does not know", () => {
     expect(() => prune(tree(), "sparc-sun-solaris")).toThrow(/sparc/);
+  });
+  it("prunes prebuilds/<os>-<cpu> folders (the prebuildify layout) for other targets, and musl builds for a glibc target", () => {
+    const nm = tree();
+    prune(nm, "x86_64-unknown-linux-gnu");
+    expect(has(nm, "@datadog/pprof/prebuilds/linux-x64/dd_pprof.node.abi137.node")).toBe(true);
+    expect(has(nm, "@datadog/pprof/out/src/index.js")).toBe(true);
+    for (const f of ["@datadog/pprof/prebuilds/linux-x64/dd_pprof.musl.node.abi137.node", "@datadog/pprof/prebuilds/linux-arm64", "@datadog/pprof/prebuilds/darwin-arm64", "@datadog/pprof/prebuilds/win32-x64"]) expect(has(nm, f), f).toBe(false);
+    const mac = tree();
+    prune(mac, "aarch64-apple-darwin");
+    expect(has(mac, "@datadog/pprof/prebuilds/darwin-arm64/dd_pprof.node.abi137.node")).toBe(true);
+    expect(has(mac, "@datadog/pprof/prebuilds/linux-x64")).toBe(false);
   });
 });

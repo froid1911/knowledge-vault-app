@@ -1,0 +1,75 @@
+// Plan 6: launch the built app from a clean, throwaway home with KV_SMOKE=1 — the shell exits 0 once
+// its bundled engine is ready and its own host page answers (stopping the engine on the way out).
+// Reports the installer sizes, the time to ready and the peak memory of the whole process tree.
+//   node scripts/smoke-app.mjs [path-to-AppImage]
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+const bundle = resolve("src-tauri", "target", "release", "bundle");
+const newest = (dir, ext) => {
+  if (!existsSync(dir)) return undefined;
+  const files = readdirSync(dir).filter((f) => f.endsWith(ext)).map((f) => join(dir, f));
+  return files.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+};
+const appImage = process.argv[2] ?? newest(join(bundle, "appimage"), ".AppImage");
+if (!appImage) {
+  console.error("[smoke] no AppImage found — run `bun run build:app` first");
+  process.exit(1);
+}
+const mb = (p) => (statSync(p).size / 1e6).toFixed(0);
+const deb = newest(join(bundle, "deb"), ".deb");
+console.log(`[smoke] ${appImage.split("/").pop()}: ${mb(appImage)} MB${deb ? `; ${deb.split("/").pop()}: ${mb(deb)} MB` : ""}`);
+
+const home = mkdtempSync(join(tmpdir(), "kv-smoke-"));
+const env = {
+  PATH: "/usr/bin:/bin",
+  HOME: home,
+  XDG_DATA_HOME: join(home, ".local/share"),
+  XDG_CONFIG_HOME: join(home, ".config"),
+  XDG_CACHE_HOME: join(home, ".cache"),
+  KV_SMOKE: "1",
+  APPIMAGE_EXTRACT_AND_RUN: "1", // no FUSE needed
+};
+for (const k of ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS"]) if (process.env[k]) env[k] = process.env[k];
+
+const started = Date.now();
+const child = spawn(appImage, [], { env, stdio: ["ignore", "pipe", "pipe"] });
+let out = "";
+child.stdout.on("data", (d) => (out += d));
+child.stderr.on("data", (d) => (out += d));
+
+// Peak resident memory of the app and everything it started (Linux /proc).
+let peak = 0;
+const tree = (pid) => {
+  const kids = [];
+  for (const p of readdirSync("/proc").filter((x) => /^\d+$/.test(x))) {
+    try {
+      if (readFileSync(`/proc/${p}/stat`, "utf8").split(") ")[1].split(" ")[1] === String(pid)) kids.push(Number(p));
+    } catch {}
+  }
+  return [pid, ...kids.flatMap(tree)];
+};
+const sampler = setInterval(() => {
+  let kb = 0;
+  for (const p of tree(child.pid)) {
+    try {
+      kb += Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${p}/status`, "utf8"))?.[1] ?? 0);
+    } catch {}
+  }
+  peak = Math.max(peak, kb);
+}, 500);
+const killer = setTimeout(() => child.kill("SIGKILL"), 150_000);
+child.on("exit", (code) => {
+  clearInterval(sampler);
+  clearTimeout(killer);
+  const verdict = /\[smoke\] (ok|failed)[^\n]*/.exec(out)?.[0];
+  console.log(verdict ?? "[smoke] no verdict from the app");
+  console.log(`[smoke] exit ${code} after ${((Date.now() - started) / 1000).toFixed(1)} s; peak memory ${(peak / 1024).toFixed(0)} MB`);
+  const store = join(env.XDG_DATA_HOME, "xyz.powerhouse.desktop-knowledge-vault", "vault");
+  console.log(`[smoke] engine store created: ${existsSync(join(store, "reactor"))}`);
+  if (code !== 0) console.log(out.split("\n").slice(-30).join("\n"));
+  rmSync(home, { recursive: true, force: true });
+  process.exit(code === 0 && verdict?.includes("ok") ? 0 : 1);
+});

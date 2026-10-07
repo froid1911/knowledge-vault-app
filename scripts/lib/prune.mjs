@@ -71,6 +71,29 @@ export function prune(nodeModules, triple) {
   } catch {
     // not installed
   }
+  // prebuildify's layout: <pkg>/prebuilds/<os>-<cpu>/… (e.g. @datadog/pprof) — other targets' folders go,
+  // and for a glibc target the musl builds in its own folder (a bundler cannot resolve libc.musl for them).
+  const prebuilds = (dir, depth) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const p = join(dir, e.name);
+      if (e.name === "prebuilds") {
+        for (const plat of readdirSync(p, { withFileTypes: true })) {
+          if (!plat.isDirectory()) continue;
+          const [os, cpu] = plat.name.split("-");
+          const pp = join(p, plat.name);
+          if (os !== target.os || (CPU_ALIAS[cpu] ?? cpu) !== target.cpu) {
+            remove(pp);
+          } else if (target.libc === "gnu") {
+            for (const f of readdirSync(pp)) if (f.includes(".musl.") || f.includes("-musl")) remove(join(pp, f));
+          }
+        }
+      } else if (depth < 6) {
+        prebuilds(p, depth + 1);
+      }
+    }
+  };
+  prebuilds(nodeModules, 0);
   // maps and declarations — files only
   const walk = (dir) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
