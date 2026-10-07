@@ -23,3 +23,10 @@ jobs:
       - uses: powerhouse-inc/vetra-deploy-action@v1
         with:
           app-id: 8b3119b9-efa5-4d27-a9b3-d794b2d71b78
+          install-command: ''
+          build-command: ''
+          # The op-hub package is published separately; this App only ships the front-end.
+          package-dirs: ''
+          fusion-dockerfile: Dockerfile
+          fusion-context: .
+          fusion-image-name: knowledge-vault
