@@ -41,7 +41,9 @@ pub(crate) fn quit(app: &AppHandle) {
 /// that the window loaded and its capability works.
 #[tauri::command]
 fn host_loaded(state: tauri::State<'_, smoke::HostLoaded>) {
-    state.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    if !state.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        println!("[shell] the page loaded and reached the shell over IPC");
+    }
 }
 
 /// "Try again" after the engine kept stopping or refused to start.

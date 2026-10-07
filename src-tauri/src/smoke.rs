@@ -24,10 +24,9 @@ pub fn host_answers(port: u16) -> bool {
         return false;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    if stream
-        .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
-        .is_err()
-    {
+    // With the port: the page server refuses any other Host (its DNS-rebinding guard).
+    let request = format!("GET / HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+    if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
     let mut head = [0u8; 32];
@@ -88,6 +87,30 @@ mod tests {
             }
         });
         port
+    }
+
+    #[test]
+    fn its_request_passes_the_page_servers_host_check() {
+        // The page server refuses a Host without its port (DNS-rebinding guard); the check must not trip it.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 256];
+            let n = s.read(&mut buf).unwrap();
+            let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+            String::from_utf8_lossy(&buf[..n]).to_string()
+        });
+        assert!(host_answers(port));
+        let request = seen.join().unwrap();
+        let host = request
+            .lines()
+            .find_map(|l| l.strip_prefix("Host: "))
+            .map(str::trim);
+        assert!(
+            crate::host_server::allowed_host(host, port),
+            "sent {host:?}"
+        );
     }
 
     #[test]
