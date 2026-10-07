@@ -1,3 +1,4 @@
+import type { EngineToken } from "./connections.js";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { deleteDocument, execute, gql, toActions } from "./reactor-gql.js";
@@ -76,6 +77,29 @@ const ENGINE_TOKEN_SECONDS = 90 * 86_400;
 /** A token this close to its end reads as stale, so the user updates before runs start failing. */
 const TOKEN_RENEW_BEFORE_MS = 7 * 86_400_000;
 
+/**
+ * Signed in: a long-lived bearer minted by the identity. Open engine, nobody signed in: the
+ * placeholder "open" — the engine never reads it. A protected engine with nobody signed in
+ * has no bearer to give: refused (whatever uses it would run as nobody).
+ * Shared by the vault pipelines and Studio's Knowledge Vault connections.
+ */
+export async function mintEngineToken(
+  identity: PipelineManagerDeps["identity"],
+  engineProtected: boolean,
+  now: () => string = () => new Date().toISOString(),
+): Promise<EngineToken> {
+  try {
+    if ((await identity.status()).authenticated) {
+      const minted = await identity.token(ENGINE_TOKEN_SECONDS);
+      return { value: minted.token, kind: "minted", expiresAt: new Date(Date.parse(now()) + ENGINE_TOKEN_SECONDS * 1000).toISOString() };
+    }
+  } catch {
+    // expired or unavailable: treated as signed out
+  }
+  if (engineProtected) throw new SettingsError("Sign in first — on a protected engine this runs as you.");
+  return { value: "open", kind: "open", expiresAt: null };
+}
+
 export function createPipelineManager(deps: PipelineManagerDeps) {
   const f = deps.fetchImpl;
   const now = () => (deps.now ?? (() => new Date().toISOString()))(); // read each time: tests move the clock
@@ -95,25 +119,7 @@ export function createPipelineManager(deps: PipelineManagerDeps) {
     for (const id of [record.workflowId, record.connectionId]) await deleteDocument(deps.origin, id, f).catch(() => undefined);
     for (const ref of [record.secretRefs.token, record.secretRefs.llm]) await deleteSecret(ref);
   }
-  /**
-   * Signed in: a long-lived bearer minted by the identity. Open engine, nobody signed in: the
-   * placeholder "open" — the engine never reads it. A protected engine with nobody signed in
-   * has no bearer to give the pipeline: refused (the pipeline would run as nobody).
-   */
-  async function engineToken(): Promise<{ value: string; kind: "open" | "minted"; expiresAt: string | null }> {
-    let authenticated = false;
-    try {
-      authenticated = (await deps.identity.status()).authenticated;
-      if (authenticated) {
-        const minted = await deps.identity.token(ENGINE_TOKEN_SECONDS);
-        return { value: minted.token, kind: "minted", expiresAt: new Date(Date.parse(now()) + ENGINE_TOKEN_SECONDS * 1000).toISOString() };
-      }
-    } catch {
-      authenticated = false; // expired or unavailable
-    }
-    if (deps.engineProtected) throw new SettingsError("Sign in first — on a protected engine the pipeline runs as you.");
-    return { value: "open", kind: "open", expiresAt: null };
-  }
+  const engineToken = () => mintEngineToken(deps.identity, deps.engineProtected === true, now);
   const modelsConfigured = (settings: AppSettings) => settings.models.hasKey && settings.models.model.trim().length > 0;
 
   /** Why a recorded pipeline no longer fits: disabled, other model settings, an "open" bearer on a protected engine, a token near its end. */

@@ -26,5 +26,5 @@ export function WorkflowsScreen({ info, client, onBack, onSettings }: { info: Si
       </div>
     );
   }
-  return <WorkspaceScreen client={client} driveId={drive.id} appId="workflow-studio" fallbackTitle="Workflows" onBack={onBack} onSettings={onSettings} />;
+  return <WorkspaceScreen client={client} driveId={drive.id} appId="workflow-studio" fallbackTitle="Workflows" engine={info} onBack={onBack} onSettings={onSettings} />;
 }

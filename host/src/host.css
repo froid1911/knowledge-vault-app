@@ -290,3 +290,7 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-toast[data-error="true"] { border-color: var(--bai-danger); }
 .kv-toast > span { flex: 1; overflow-wrap: anywhere; }
 .kv-toast-close { border: 0; background: none; color: var(--bai-text-muted, inherit); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+
+/* Above Studio's Knowledge Vault connection form: what this app fills in. */
+.kv-assist { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 12px 16px 0; padding: 10px 14px; border: 1px solid var(--bai-border); border-radius: 10px; background: var(--bai-overlay); color: var(--bai-text); font: 14px/1.45 var(--kv-font-ui); }
+.kv-assist > p { flex: 1 1 320px; margin: 0; }

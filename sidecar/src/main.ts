@@ -21,7 +21,8 @@ import { cleanPartialBackups, listBackups, recoverInterruptedRestore } from "./b
 import { stopOrphanedHelper } from "./orphans.js";
 import { exportVault } from "./export.js";
 import { compareStack, TOO_NEW_MESSAGE } from "./store-guard.js";
-import { createPipelineManager } from "./pipelines.js";
+import { createPipelineManager, mintEngineToken } from "./pipelines.js";
+import { fillConnection } from "./connections.js";
 import { validateModelEndpoint } from "./models-validate.js";
 import { privateHostAllow } from "./egress.js";
 import type { PipelineTemplate } from "./templates.js";
@@ -233,9 +234,22 @@ async function main(): Promise<void> {
     engineProtected: cfg.protected,
   });
 
+  // Studio's Knowledge Vault connections: this engine's address and a token from the sign-in, on request.
+  const fillConnectionHere = (connectionId: string, options: { token: boolean }) =>
+    fillConnection(
+      {
+        origin,
+        fetchImpl: engineFetch,
+        engineToken: () => mintEngineToken({ status: () => identity.status(), token: (expiresIn) => identity.token(expiresIn) }, cfg.protected),
+      },
+      connectionId,
+      options,
+    );
+
   // The port the control server actually binds (it falls back upward when the configured one is busy).
   let boundControlPort = cfg.controlPort;
   const control = createControlServer({
+    fillConnection: fillConnectionHere,
     token: cfg.controlToken,
     hostOrigin: cfg.hostOrigin,
     status: () => ({

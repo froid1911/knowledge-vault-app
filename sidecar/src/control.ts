@@ -5,6 +5,7 @@ import { callbackPage, createOAuthStore } from "./oauth.js";
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, RemoteTooOldError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
+import { ConnectionError, type FillResult } from "./connections.js";
 import type { EnsureResult, PipelineStatus } from "./pipelines.js";
 import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch, type LocalProtection } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
@@ -36,6 +37,8 @@ export type ControlDeps = {
   workflowsDrive: () => Promise<DriveRef>;
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
+  /** Studio's Knowledge Vault connection, filled from this app: the engine's address and, when asked, a token from the sign-in. */
+  fillConnection: (connectionId: string, options: { token: boolean }) => Promise<FillResult>;
   /** Settings › Models › Validate: the saved endpoint and key against the provider. */
   validateModels: () => Promise<{ ok: boolean; detail: string }>;
   /** Spec §4.5: each vault's pipeline (template instantiation, status, removal). */
@@ -236,6 +239,11 @@ export function createControlServer(deps: ControlDeps) {
         }
         return send(res, 201, { vault, pipeline }, allowed);
       }
+      const fillOf = url.pathname.match(/^\/connections\/([^/]+)\/fill$/);
+      if (fillOf && req.method === "POST") {
+        const body = await readJson(req);
+        return send(res, 200, { connection: await deps.fillConnection(decodePart(fillOf[1]!), { token: body.token === true }) }, allowed);
+      }
       const pipelineOf = url.pathname.match(/^\/vaults\/([^/]+)\/pipeline$/);
       if (pipelineOf && req.method === "POST") {
         const result = await deps.pipelines.ensure(decodePart(pipelineOf[1]!));
@@ -362,7 +370,7 @@ export function createControlServer(deps: ControlDeps) {
       }
       return send(res, 404, { error: "Not found" }, allowed);
     } catch (error) {
-      if (error instanceof BadRequestError || error instanceof SettingsError || error instanceof ConverterInputError) return send(res, 400, { error: error.message }, allowed);
+      if (error instanceof BadRequestError || error instanceof SettingsError || error instanceof ConnectionError || error instanceof ConverterInputError) return send(res, 400, { error: error.message }, allowed);
       if (error instanceof ConverterBusyError) return send(res, 409, { error: error.message }, allowed);
       if (error instanceof NotAVaultError) return send(res, 404, { error: error.message }, allowed);
       if (error instanceof RemoteInputError) return send(res, 400, { error: error.message }, allowed);

@@ -1,3 +1,4 @@
+import { ConnectionError } from "./connections.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConverterBusyError, ConverterInputError } from "./converter.js";
 import { createControlServer } from "./control.js";
@@ -56,6 +57,11 @@ async function harnessDeps(): Promise<Parameters<typeof createControlServer>[0]>
       remove: (id) => { remotes = remotes.filter((v) => v.id !== id); },
     },
     validateModels: async () => ({ ok: true, detail: "3 models available" }),
+    fillConnection: async (id, opts) => {
+      if (id !== "c1") throw new ConnectionError("Only a Knowledge Vault connection can be filled from this app.");
+      if (opts.token && !signedIn) throw new SettingsError("Sign in first — on a protected engine the pipeline runs as you.");
+      return { baseUrl: "http://127.0.0.1:4201", token: opts.token ? { kind: "minted" as const, expiresAt: "2027-01-05T00:00:00.000Z" } : null };
+    },
     pipelines: {
       ensure: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}` } : { state: "unconfigured" as const }),
       status: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}`, trigger: { status: "ENABLED", lastPollAt: null, lastError: null } } : { state: "unconfigured" as const }),
@@ -292,6 +298,21 @@ describe("pipelines over the control API", () => {
     expect((await (await fetch(`${base}/vaults/v1/pipeline`, { headers: h })).json()).pipeline.trigger.status).toBe("ENABLED");
     await fetch(`${base}/vaults/v1`, { method: "DELETE", headers: h });
     expect(removedPipelines).toEqual(["v1"]);
+  });
+});
+
+describe("filling a Knowledge Vault connection over the control API", () => {
+  const h = { authorization: "Bearer secret", "content-type": "application/json" };
+  it("fills the address, the token when asked, and refuses other connections", async () => {
+    const base = await start();
+    const url = await fetch(`${base}/connections/c1/fill`, { method: "POST", headers: h, body: "{}" });
+    expect(await url.json()).toEqual({ connection: { baseUrl: "http://127.0.0.1:4201", token: null } });
+    signedIn = true;
+    const withToken = await fetch(`${base}/connections/c1/fill`, { method: "POST", headers: h, body: JSON.stringify({ token: true }) });
+    expect((await withToken.json()).connection.token).toEqual({ kind: "minted", expiresAt: "2027-01-05T00:00:00.000Z" });
+    const other = await fetch(`${base}/connections/mail/fill`, { method: "POST", headers: h, body: "{}" });
+    expect(other.status).toBe(400);
+    expect(await other.json()).toEqual({ error: "Only a Knowledge Vault connection can be filled from this app." });
   });
 });
 

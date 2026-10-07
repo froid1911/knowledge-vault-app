@@ -9,6 +9,8 @@ import {
   useSelectedDocument,
 } from "@powerhousedao/reactor-browser";
 import { Suspense, useMemo, useState } from "react";
+import type { FillResult } from "../api/connections.js";
+import { ConnectionAssist } from "./ConnectionAssist.js";
 
 function defaultScope(scopes: readonly string[]): string {
   return scopes.includes("global") ? "global" : (scopes[0] ?? "global");
@@ -21,7 +23,7 @@ function defaultScope(scopes: readonly string[]): string {
  * keeps Connect's `#document-editor-context` id and data attributes, which the
  * vault package's dark-mode overrides key on.
  */
-export function DocumentEditorContainer() {
+export function DocumentEditorContainer({ fillConnection }: { /** Studio's connections: fill from this app (local engine only). */ fillConnection?: (id: string, token: boolean) => Promise<FillResult> } = {}) {
   const [selected] = useSelectedDocument();
   const [live] = useDocumentById(selected.header.id);
   const document = live ?? selected;
@@ -61,9 +63,12 @@ export function DocumentEditorContainer() {
           documentState={document.state}
         />
       ) : (
-        <Suspense fallback={<p role="status">Loading…</p>}>
-          <Editor key={documentId} document={document} />
-        </Suspense>
+        <>
+          {fillConnection && documentType === "powerhouse/connection" && <ConnectionAssist key={documentId} document={document} fill={fillConnection} />}
+          <Suspense fallback={<p role="status">Loading…</p>}>
+            <Editor key={documentId} document={document} />
+          </Suspense>
+        </>
       )}
     </div>
   );
