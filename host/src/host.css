@@ -13,9 +13,9 @@ body, #root { margin: 0; min-height: 100vh; }
 
 /* ---- the landing frame: header / main / status strip ---- */
 .kv-landing { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-.kv-header { width: 100%; max-width: var(--kv-measure); margin: 0 auto; padding: 22px var(--kv-gutter) 6px; display: flex; align-items: center; gap: 10px; box-sizing: border-box; }
-.kv-header img { width: 28px; height: 28px; display: block; }
-.kv-header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+.kv-header { width: 100%; max-width: var(--kv-measure); margin: 0 auto; padding: 22px var(--kv-gutter) 6px; display: flex; align-items: center; gap: 12px; box-sizing: border-box; }
+.kv-header img { width: 44px; height: 44px; display: block; }
+.kv-header h1 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
 .kv-main { width: 100%; max-width: var(--kv-measure); margin: 0 auto; padding: 28px var(--kv-gutter) 48px; box-sizing: border-box; }
 .kv-vaults-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
 .kv-vaults-row h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.015em; margin: 0; }
@@ -140,8 +140,10 @@ body, #root { margin: 0; min-height: 100vh; }
 }
 
 /* ---- dialogs ---- */
-.kv-dialog { padding: 0; border: 1px solid var(--bai-border); border-radius: 12px; background: var(--bai-overlay); color: var(--bai-text); width: min(480px, calc(100vw - 48px)); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
-.kv-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+/* A reset in the page's base styles (margin: 0 on every element) cancels the browser's own centring of
+   a modal <dialog>: centre it explicitly. */
+.kv-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; max-height: calc(100vh - 48px); overflow: auto; padding: 0; border: 1px solid var(--bai-border); border-radius: 12px; background: var(--bai-overlay); color: var(--bai-text); width: min(480px, calc(100vw - 48px)); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+.kv-dialog::backdrop { background: rgba(0, 0, 0, 0.45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .kv-dialog-body { padding: 22px 24px 20px; }
 .kv-dialog-title { font-size: 18px; font-weight: 600; margin: 0 0 14px; letter-spacing: -0.01em; }
 .kv-dialog[data-kind="danger"] .kv-dialog-title { color: var(--bai-danger); }

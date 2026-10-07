@@ -5,7 +5,7 @@ import { GearIcon, WorkflowIcon } from "./icons.js";
 export function Header({ identity, onIdentity, onWorkflows, onSettings }: { identity?: { authenticated: boolean; address?: string } | null; onIdentity?: () => void; onWorkflows?: () => void; onSettings?: () => void }) {
   return (
     <header className="kv-header">
-      <img src="/vault-icon.png" alt="" width={28} height={28} />
+      <img src="/vault-icon.png" alt="" width={44} height={44} />
       <h1>Knowledge Vault</h1>
       <div className="kv-header-actions">
         {onWorkflows && (

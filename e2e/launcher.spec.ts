@@ -54,6 +54,12 @@ test("launcher: full view inside a vault, rename from the ⋯ menu, Settings sec
   await page.getByRole("menuitem", { name: "Delete" }).click();
   const del = page.getByRole("button", { name: "Delete vault" });
   await expect(del).toBeDisabled();
+  // The dialog sits in the middle of the window, over a blurred backdrop.
+  const box = (await page.locator("dialog.kv-dialog[open]").boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(2);
+  expect(Math.abs(box.y + box.height / 2 - viewport.height / 2)).toBeLessThan(2);
+  expect(await page.locator("dialog.kv-dialog[open]").evaluate((d) => getComputedStyle(d, "::backdrop").backdropFilter)).toContain("blur");
   await page.getByLabel("Type the vault’s name to confirm").fill("Launcher vault renamed");
   await expect(del).toBeEnabled();
   await del.click();
