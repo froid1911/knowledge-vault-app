@@ -6,9 +6,7 @@ mod sidecar;
 mod tray;
 
 use config::{AppPaths, DEFAULT_PORTS, Ports, UiConfig, new_control_token, pick_free_port};
-use sidecar::{
-    ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar, stop_sidecar_blocking,
-};
+use sidecar::{ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar_blocking};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
@@ -21,10 +19,21 @@ fn data_dir(app: &AppHandle) -> Option<PathBuf> {
     app.state::<DataDir>().0.lock().ok()?.clone()
 }
 
-/// Stop the engine (waiting for its graceful stop), then exit — the tray's Quit.
+/// Stop the engine (waiting for its graceful stop), then exit — the tray's Quit, a close that
+/// quits. Off the main thread: the window keeps painting "stopping", and the main thread stays
+/// free for the tray and the event loop while the engine flushes its store.
 pub(crate) fn quit(app: &AppHandle) {
-    stop_sidecar_blocking(app);
-    app.exit(0);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        stop_sidecar_blocking(&app);
+        app.exit(0);
+    });
+}
+
+/// "Try again" after the engine kept stopping or refused to start.
+#[tauri::command]
+fn retry_engine(app: AppHandle) -> Result<(), String> {
+    sidecar::retry_sidecar(&app)
 }
 
 /// Open the engine's logs folder in the file manager.
@@ -72,7 +81,8 @@ pub fn run() {
             sidecar_info,
             open_logs,
             reveal_path,
-            quit_app
+            quit_app,
+            retry_engine
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -161,11 +171,12 @@ pub fn run() {
                     && data_dir(app)
                         .map(|d| UiConfig::load(&d.join("config.json")).close_to_tray)
                         .unwrap_or(true);
+                api.prevent_close();
                 if keep {
-                    api.prevent_close();
                     let _ = window.hide();
                 } else {
-                    stop_sidecar(app);
+                    // Wait for the engine before exiting: the process must not end while it flushes.
+                    quit(app);
                 }
             }
         })

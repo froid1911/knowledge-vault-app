@@ -63,6 +63,16 @@ impl RotatingLog {
         })
     }
     pub fn write_line(&mut self, line: &str) {
+        // The file went away under us (a delete-all removes logs/): start a new one.
+        if !self.path.exists() {
+            if let Some(dir) = self.path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if let Ok(file) = open_private(&self.path) {
+                self.file = file;
+                self.written = 0;
+            }
+        }
         if self.written >= self.max_bytes {
             let _ = self.rotate();
         }
@@ -90,6 +100,20 @@ impl RotatingLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn starts_a_new_file_when_the_log_was_deleted_under_it() {
+        let dir = std::env::temp_dir().join(format!("kv-log-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sidecar.log");
+        let mut log = RotatingLog::open(&path, 1_000_000, 3).unwrap();
+        log.write_line("before");
+        std::fs::remove_dir_all(&dir).unwrap();
+        log.write_line("after");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "after\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn keeps_only_the_last_lines() {
         let mut t = LogTail::new(3);

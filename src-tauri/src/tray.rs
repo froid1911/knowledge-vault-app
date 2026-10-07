@@ -72,12 +72,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Never holds a lock across `set_text`: in Tauri 2 it hops to the main thread and waits there,
+/// so a background thread holding the lock while the main thread waits for the same lock
+/// (Quit → stop → the reader thread refreshing) would deadlock. The item is cloned out and
+/// the update is queued on the main thread without waiting for it.
 pub fn refresh(app: &AppHandle, state: &str) {
-    if let Some(tray) = app.try_state::<Tray>()
-        && let Ok(line) = tray.engine_line.lock()
-        && let Some(item) = line.as_ref()
-    {
-        let _ = item.set_text(engine_label(state));
+    let item = app
+        .try_state::<Tray>()
+        .and_then(|tray| tray.engine_line.lock().ok().and_then(|line| line.clone()));
+    if let Some(item) = item {
+        let text = engine_label(state);
+        let _ = app.run_on_main_thread(move || {
+            let _ = item.set_text(text);
+        });
     }
 }
 

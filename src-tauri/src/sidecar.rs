@@ -80,6 +80,19 @@ impl Default for SidecarState {
 }
 
 impl SidecarState {
+    /// "Try again" after the supervisor gave up (or the engine refused to start): a clean slate —
+    /// no crash count, no refusal, no exit code — so the next exits are judged afresh.
+    pub fn reset_for_retry(&mut self) {
+        self.attempt = 0;
+        self.fatal = None;
+        self.exit_code = None;
+        self.delay_ms = None;
+        self.stopping = false;
+        self.shutdown_requested = false;
+        self.restart_requested = false;
+        self.crashes = CrashWindow::new(120_000);
+    }
+
     fn now_ms(&self) -> u64 {
         self.started_at.elapsed().as_millis() as u64
     }
@@ -426,6 +439,11 @@ pub fn spawn_sidecar(
                             attempt,
                         );
                         st.restart_requested = false;
+                        // A planned restart (the protection switch, a backup) respawns at once: it is
+                        // "starting", never a flash of "the engine stopped, exit code 0".
+                        if matches!(action, ExitAction::Restart) {
+                            st.running = true;
+                        }
                         st.attempt = attempt;
                         st.delay_ms = match action {
                             ExitAction::Respawn { delay_ms } => Some(delay_ms),
@@ -532,12 +550,24 @@ fn finish_stop(app: &AppHandle, child: CommandChild) {
     emit_status(app);
 }
 
-/// Graceful stop off the main thread (the window closing): the UI keeps painting "stopping".
-pub fn stop_sidecar(app: &AppHandle) {
-    if let Some(child) = begin_stop(app) {
-        let h = app.clone();
-        tauri::async_runtime::spawn_blocking(move || finish_stop(&h, child));
-    }
+/// Start the engine again after the supervisor gave up — the strip's "Try again".
+pub fn retry_sidecar(app: &AppHandle) -> Result<(), String> {
+    let params = {
+        let state = app.state::<Mutex<SidecarState>>();
+        let mut st = state.lock().unwrap();
+        if st.running {
+            return Ok(());
+        }
+        st.reset_for_retry();
+        st.running = true; // reads as "starting" until the spawn's own events take over
+        st.spawn.clone()
+    };
+    emit_status(app);
+    let p = params.ok_or("The engine was never started by this window (the dev loop runs it).")?;
+    spawn_sidecar(app, &p.paths, p.ports, p.token, &p.app_version).map_err(|e| {
+        mark_exited(app);
+        e.to_string()
+    })
 }
 
 /// Graceful stop on the current thread (the process is exiting and must wait for the engine).
@@ -739,6 +769,26 @@ mod tests {
         assert!(parse_fatal_line(r#"{"event":"ready","port":1,"controlPort":2}"#).is_none());
         assert!(parse_shutdown_line(r#"{"event":"shutdown"}"#));
         assert!(!parse_shutdown_line("[sidecar] shutdown complete"));
+    }
+
+    #[test]
+    fn retry_starts_from_a_clean_slate() {
+        let mut st = SidecarState {
+            attempt: 4,
+            fatal: Some(FatalInfo {
+                reason: "store-in-use".into(),
+                message: "m".into(),
+            }),
+            exit_code: Some(78),
+            stopping: true,
+            ..SidecarState::default()
+        };
+        st.crashes.record(1);
+        st.crashes.record(2);
+        st.reset_for_retry();
+        assert_eq!(st.attempt, 0);
+        assert!(st.fatal.is_none() && st.exit_code.is_none() && !st.stopping);
+        assert_eq!(st.crashes.record(3), 1, "the crash count starts over");
     }
 
     #[test]
