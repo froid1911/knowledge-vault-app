@@ -38,15 +38,17 @@ type OperationItem = { index: number; error: string | null; action: { type: stri
 /**
  * Replay a batch. `execute` answers with the document, not with per-operation
  * results, and a reducer that rejects an action still records the operation —
- * with its `error` — so the new operations are read back and checked: the
- * batch is the tail of the document's history.
+ * with its `error` — so the new global operations are read back and checked:
+ * the batch is the tail of the document's global history.
  */
 export async function execute(origin: string, documentId: string, actions: ActionInput[], fetchImpl: typeof fetch = fetch): Promise<void> {
   if (actions.length === 0) return;
   await gql(origin, `mutation($id: String!, $a: [ActionInput!]!) { execute(documentIdOrSlug: $id, actions: $a) { id } }`, { id: documentId, a: actions }, fetchImpl);
   const data = await gql<{ document: { document: { operations: { items: OperationItem[] } } } }>(
     origin,
-    `query($id: String!) { document(idOrSlug: $id) { document { operations(paging: { limit: 500 }) { items { index error action { type } } hasNextPage cursor } } } }`,
+    // The global scope only: a fresh document also holds CREATE_DOCUMENT / UPGRADE_DOCUMENT in the
+    // `document` scope with their own indexes, which would otherwise interleave with the batch.
+    `query($id: String!) { document(idOrSlug: $id) { document { operations(filter: { scopes: ["global"] }, paging: { limit: 500 }) { items { index error action { type } } hasNextPage cursor } } } }`,
     { id: documentId },
     fetchImpl,
   );

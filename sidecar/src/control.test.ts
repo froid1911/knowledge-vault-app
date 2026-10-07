@@ -20,7 +20,8 @@ let restartsRequested = 0;
 let expired = false;
 let modelKey = false;
 let removedPipelines: string[] = [];
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
+let disabledFor: string[] = [];
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; disabledFor = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
 
 async function start() {
   const server = createControlServer({
@@ -50,6 +51,7 @@ async function start() {
       ensure: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}` } : { state: "unconfigured" as const }),
       status: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}`, trigger: { status: "ENABLED", lastPollAt: null, lastError: null } } : { state: "unconfigured" as const }),
       remove: async (id: string) => { removedPipelines.push(id); },
+      disableAll: async (reason: string) => { disabledFor.push(reason); },
     },
     protection: {
       get: () => protection,
@@ -289,5 +291,16 @@ describe("model validation over the control API", () => {
     const ok = await fetch(`${base}/settings/models/validate`, { method: "POST", headers: h });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ ok: true, detail: "3 models available" });
+  });
+});
+
+describe("settings changes reach the pipelines", () => {
+  const h = { authorization: "Bearer secret", "content-type": "application/json" };
+  it("removing the key disables every pipeline; changing the endpoint does not (status reads stale instead)", async () => {
+    const base = await start();
+    await fetch(`${base}/settings`, { method: "PUT", headers: h, body: JSON.stringify({ models: { endpoint: "http://127.0.0.1:11434/v1" } }) });
+    expect(disabledFor).toEqual([]);
+    await fetch(`${base}/settings`, { method: "PUT", headers: h, body: JSON.stringify({ models: { apiKey: "" } }) });
+    expect(disabledFor).toEqual(["the model key was removed"]);
   });
 });

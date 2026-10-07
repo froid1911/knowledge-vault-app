@@ -80,3 +80,10 @@ describe("switchboardEnv", () => {
     expect(() => readSidecarConfig({ ...base, KV_PROTECTED: "1" })).toThrow(/KV_ADMIN_ADDRESS/);
   });
 });
+
+describe("switchboardEnv — egress", () => {
+  it("allows loopback plus whatever the model endpoint needs", () => {
+    expect(switchboardEnv(readSidecarConfig(base), "wfkey", "local", ["192.168.1.20/32"]).PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128,192.168.1.20/32");
+    expect(switchboardEnv(readSidecarConfig(base), "wfkey").PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128");
+  });
+});

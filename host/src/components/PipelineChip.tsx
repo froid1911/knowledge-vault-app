@@ -52,7 +52,7 @@ export function PipelineChip({ info, vaultId, api = realApi, onModels, onRuns, p
 
   if (!status) return error ? <span className="kv-pipeline-chip" data-tone="warn" title={error}><span className="kv-identity-dot" aria-hidden="true" />Processing: unknown</span> : null;
   const d = describePipeline(status);
-  const tooltip = status.state === "ready" ? (status.lastRun?.error ?? status.trigger?.lastError ?? undefined) : undefined;
+  const tooltip = status.state === "ready" ? (status.lastRun?.error ?? status.trigger?.lastError ?? undefined) : status.state === "stale" ? status.reason : undefined;
   const act = d.action === "models" ? onModels : d.action === "runs" ? onRuns : () => void setup();
   return (
     <span className="kv-pipeline-chip" data-tone={d.tone} title={error ?? tooltip}>

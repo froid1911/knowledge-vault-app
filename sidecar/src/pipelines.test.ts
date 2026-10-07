@@ -19,6 +19,8 @@ function fakeEngine(triggers: Array<{ workflowId: string; status: string }> = []
     if (q.includes("createSecret")) return { ok: true, json: async () => ({ data: { workflowRuntime: { createSecret: { ref: `secret://v1:${++secrets}` } } } }) };
     if (q.includes("deleteSecret")) return { ok: true, json: async () => ({ data: { workflowRuntime: { deleteSecret: true } } }) };
     if (q.includes("deleteDocument")) return { ok: true, json: async () => ({ data: { deleteDocument: true } }) };
+    if (q.includes("execute(")) return { ok: true, json: async () => ({ data: { execute: { id: body.variables.id } } }) };
+    if (q.includes("operations(")) return { ok: true, json: async () => ({ data: { document: { document: { operations: { items: [{ index: 0, error: null, action: { type: "SET_WORKFLOW_STATUS" } }], hasNextPage: false, cursor: null } } } } }) };
     if (q.includes("triggerStates")) {
       return { ok: true, json: async () => ({ data: { workflowRuntime: { triggerStates: triggers.map((t) => ({ ...t, lastPollAt: "2026-10-07T10:00:00.000Z", lastError: null })), runsPage: { items: [{ id: `run-${body.variables.w}`, status: "FAILED", startedAt: "2026-10-07T09:59:00.000Z", endedAt: "2026-10-07T09:59:30.000Z", error: "no model here" }] } } } }) };
     }
@@ -26,7 +28,7 @@ function fakeEngine(triggers: Array<{ workflowId: string; status: string }> = []
   }) as unknown as typeof fetch;
   return { fetchImpl, calls };
 }
-function deps(over: Partial<PipelineManagerDeps> & { hasKey?: boolean; signedIn?: boolean; triggers?: Array<{ workflowId: string; status: string }> } = {}) {
+function deps(over: Partial<PipelineManagerDeps> & { hasKey?: boolean; signedIn?: boolean; model?: string; triggers?: Array<{ workflowId: string; status: string }> } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "kv-pipelines-"));
   const engine = fakeEngine(over.triggers);
   const instantiate = vi.fn(async () => ({ workflowId: "wf-1", connectionId: "conn-1" }));
@@ -37,7 +39,7 @@ function deps(over: Partial<PipelineManagerDeps> & { hasKey?: boolean; signedIn?
     fetchImpl: engine.fetchImpl,
     template,
     pieceVersion: "1.0.54-dev.23",
-    readSettings: () => ({ version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "openai/gpt-6-luna", hasKey }, conversion: { mode: "local", remoteUrl: "" } }),
+    readSettings: () => ({ version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: over.model ?? "openai/gpt-6-luna", hasKey }, conversion: { mode: "local", remoteUrl: "" } }),
     readModelKey: () => (hasKey ? "sk-or-secret" : undefined),
     identity: {
       status: async () => ({ authenticated: over.signedIn ?? true }),
@@ -85,7 +87,7 @@ describe("pipeline manager — ensure", () => {
       llm: { baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-6-luna" },
       pieceVersion: "1.0.54-dev.23",
     }));
-    expect(readPipelines(dataDir).vault1).toEqual({ workflowId: "wf-1", connectionId: "conn-1", secretRefs: { token: "secret://v1:1", llm: "secret://v1:2" }, createdAt: "2026-10-07T10:00:00.000Z" });
+    expect(readPipelines(dataDir).vault1).toEqual({ workflowId: "wf-1", connectionId: "conn-1", secretRefs: { token: "secret://v1:1", llm: "secret://v1:2" }, createdAt: "2026-10-07T10:00:00.000Z", models: { endpoint: "https://openrouter.ai/api/v1", model: "openai/gpt-6-luna" }, token: { kind: "minted", expiresAt: "2027-01-05T10:00:00.000Z" } });
   });
   it("uses a placeholder token for an open engine with nobody signed in — the engine ignores bearers there", async () => {
     const { manager, engine } = deps({ signedIn: false });
@@ -110,9 +112,11 @@ describe("pipeline manager — status and removal", () => {
     const fresh = deps();
     expect(await fresh.manager.status("vault1")).toEqual({ state: "missing" });
     const two = deps({ triggers: [{ workflowId: "wf-1", status: "ENABLED" }, { workflowId: "wf-other", status: "DISABLED" }] });
+    const models = { endpoint: "https://openrouter.ai/api/v1", model: "openai/gpt-6-luna" };
+    const token = { kind: "minted" as const, expiresAt: "2027-01-05T10:00:00.000Z" };
     writePipelines(two.dataDir, {
-      vault1: { workflowId: "wf-1", connectionId: "conn-1", secretRefs: { token: "s1", llm: "s2" }, createdAt: "x" },
-      vault2: { workflowId: "wf-other", connectionId: "conn-2", secretRefs: { token: "s3", llm: "s4" }, createdAt: "x" },
+      vault1: { workflowId: "wf-1", connectionId: "conn-1", secretRefs: { token: "s1", llm: "s2" }, createdAt: "x", models, token },
+      vault2: { workflowId: "wf-other", connectionId: "conn-2", secretRefs: { token: "s3", llm: "s4" }, createdAt: "x", models, token },
     });
     expect(await two.manager.status("vault1")).toEqual({
       state: "ready",
@@ -131,5 +135,69 @@ describe("pipeline manager — status and removal", () => {
     expect(engine.calls.filter((c) => c.query.includes("deleteSecret")).length).toBe(2);
     expect(readPipelines(dataDir)).toEqual({});
     await manager.remove("nobody"); // no throw
+  });
+});
+
+describe("pipeline manager — lifecycle (review fixes)", () => {
+  it("a failed instantiation deletes the two new secrets and leaves no record — status reads missing, never ready", async () => {
+    const { manager, engine, dataDir } = deps({ instantiate: vi.fn(async () => { throw new Error("Operation SET_TRIGGER was rejected: drive unknown"); }) });
+    await expect(manager.ensure("vault1")).rejects.toThrow(/SET_TRIGGER/);
+    expect(engine.calls.filter((c) => c.query.includes("deleteSecret")).map((c) => c.variables.ref).sort()).toEqual(["secret://v1:1", "secret://v1:2"]);
+    expect(readPipelines(dataDir).vault1).toBeUndefined();
+    expect(await manager.status("vault1")).toEqual({ state: "missing" });
+  });
+  it("re-creating a pipeline that then fails leaves no stale record", async () => {
+    const instantiate = vi.fn(async () => ({ workflowId: "wf-1", connectionId: "conn-1" }));
+    const { manager, dataDir } = deps({ instantiate });
+    await manager.ensure("vault1");
+    instantiate.mockImplementationOnce(async () => { throw new Error("reactor down"); });
+    await expect(manager.ensure("vault1")).rejects.toThrow(/reactor down/);
+    expect(readPipelines(dataDir).vault1).toBeUndefined();
+    expect(await manager.status("vault1")).toEqual({ state: "missing" });
+  });
+  it("refuses on a protected engine when nobody is signed in — the pipeline would run as nobody", async () => {
+    const { manager, engine } = deps({ engineProtected: true, signedIn: false });
+    await expect(manager.ensure("vault1")).rejects.toThrow(/Sign in first/);
+    expect(engine.calls).toEqual([]);
+  });
+  it("an empty model is unconfigured: the piece would refuse every run", async () => {
+    const { manager } = deps({ model: "" });
+    expect(await manager.ensure("vault1")).toEqual({ state: "unconfigured" });
+    expect(await manager.status("vault1")).toEqual({ state: "unconfigured" });
+  });
+  it("records the model settings and the token, and reads stale when they no longer fit", async () => {
+    const d = deps();
+    await d.manager.ensure("vault1");
+    const record = readPipelines(d.dataDir).vault1!;
+    expect(record.models).toEqual({ endpoint: "https://openrouter.ai/api/v1", model: "openai/gpt-6-luna" });
+    expect(record.token.kind).toBe("minted");
+    expect(new Date(record.token.expiresAt!).getTime() - Date.parse("2026-10-07T10:00:00.000Z")).toBe(90 * 86_400_000);
+    // the model changed in Settings
+    d.d.readSettings = () => ({ version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "other/model", hasKey: true }, conversion: { mode: "local", remoteUrl: "" } });
+    expect(await d.manager.status("vault1")).toMatchObject({ state: "stale", reason: expect.stringMatching(/model settings changed/) });
+  });
+  it("a pipeline set up on an open engine reads stale once the engine is protected; an expired token reads stale too", async () => {
+    const open = deps({ signedIn: false });
+    await open.manager.ensure("vault1");
+    expect(readPipelines(open.dataDir).vault1!.token).toEqual({ kind: "open", expiresAt: null });
+    open.d.engineProtected = true;
+    expect(await open.manager.status("vault1")).toMatchObject({ state: "stale", reason: expect.stringMatching(/protected/) });
+    const minted = deps();
+    await minted.manager.ensure("vault1");
+    minted.d.now = () => "2027-01-20T00:00:00.000Z"; // 105 days later
+    expect(await minted.manager.status("vault1")).toMatchObject({ state: "stale", reason: expect.stringMatching(/expired/) });
+  });
+  it("removing the key disables every recorded pipeline, deletes the key secret and marks the records", async () => {
+    const { manager, engine, dataDir } = deps();
+    await manager.ensure("vault1");
+    await manager.ensure("vault2");
+    await manager.disableAll("the model key was removed");
+    const disables = engine.calls.filter((c) => c.query.includes("execute(")).map((c) => (c.variables.a as Array<{ type: string; input: { status: string } }>)[0]!);
+    expect(disables.map((a) => [a.type, a.input.status])).toEqual([["SET_WORKFLOW_STATUS", "DISABLED"], ["SET_WORKFLOW_STATUS", "DISABLED"]]);
+    expect(engine.calls.filter((c) => c.query.includes("deleteSecret")).length).toBe(2);
+    const records = readPipelines(dataDir);
+    expect(records.vault1!.disabled).toBe("the model key was removed");
+    // with a key again, the record is stale (its secret is gone) and Update re-creates it
+    expect(await manager.status("vault1")).toMatchObject({ state: "stale", reason: "the model key was removed" });
   });
 });

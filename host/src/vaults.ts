@@ -110,6 +110,7 @@ export async function removeConverterComponent(info: SidecarInfo, component: Con
 export type PipelineStatus =
   | { state: "unconfigured" }
   | { state: "missing" }
+  | { state: "stale"; reason: string; workflowId: string; connectionId: string }
   | {
       state: "ready";
       workflowId: string;
@@ -125,6 +126,7 @@ export async function setupPipeline(info: SidecarInfo, vaultId: string, fetchImp
   return (await control<{ pipeline: PipelineStatus }>(info, `/vaults/${encodeURIComponent(vaultId)}/pipeline`, { method: "POST" }, fetchImpl)).pipeline;
 }
 /** The engine tries the saved model settings against the provider (one cheap request) and reports the verdict. */
-export async function validateModels(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; detail: string }> {
-  return control<{ ok: boolean; detail: string }>(info, "/settings/models/validate", { method: "POST" }, fetchImpl);
+export type ModelVerdict = { ok: boolean; detail: string; warning?: string };
+export async function validateModels(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<ModelVerdict> {
+  return control<ModelVerdict>(info, "/settings/models/validate", { method: "POST" }, fetchImpl);
 }

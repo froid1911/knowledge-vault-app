@@ -40,33 +40,7 @@ const values: PlaceholderValues = {
   "{{NOW}}": "2026-10-07T10:00:00.000Z",
 };
 
-type Call = { query: string; variables: Record<string, unknown> };
-function fakeReactor(opts: { rejectType?: string; rejectWith?: string } = {}) {
-  const calls: Call[] = [];
-  const ops = new Map<string, Array<{ index: number; error: string | null; action: { type: string } }>>();
-  let n = 0;
-  const fetchImpl = vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
-    const body = JSON.parse(String(init?.body)) as Call;
-    calls.push(body);
-    const q = body.query;
-    const ns = /(Connection|Workflow)\s*\{/.exec(q)?.[1];
-    if (q.includes("createDocument") && ns) {
-      const id = `doc${++n}`;
-      ops.set(id, [{ index: 0, error: null, action: { type: "CREATE_DOCUMENT" } }]);
-      return { ok: true, json: async () => ({ data: { [ns]: { createDocument: { id } } } }) };
-    }
-    if (q.includes("execute(")) {
-      const id = body.variables.id as string;
-      const list = ops.get(id) ?? [];
-      for (const a of body.variables.a as Array<{ type: string }>) list.push({ index: list.length, error: a.type === opts.rejectType ? (opts.rejectWith ?? "rejected") : null, action: { type: a.type } });
-      return { ok: true, json: async () => ({ data: { execute: { id } } }) };
-    }
-    if (q.includes("operations(")) return { ok: true, json: async () => ({ data: { document: { document: { operations: { items: ops.get(body.variables.id as string) ?? [], hasNextPage: false, cursor: null } } } } }) };
-    if (q.includes("deleteDocument")) return { ok: true, json: async () => ({ data: { deleteDocument: true } }) };
-    throw new Error(`unexpected query: ${q}`);
-  }) as unknown as typeof fetch;
-  return { fetchImpl, calls };
-}
+import { fakeReactor } from "./reactor-gql.test.js";
 
 describe("fillPlaceholders", () => {
   it("fills every placeholder, leaves the runtime's own expressions alone, and refuses an unknown one", () => {
@@ -102,8 +76,8 @@ describe("instantiatePipeline", () => {
     expect(wf[3]!.input).toEqual({ publishedAt: "2026-10-07T10:00:00.000Z" });
   });
   it("deletes what it created when a replayed operation is rejected, naming the operation and the reason", async () => {
-    const { fetchImpl, calls } = fakeReactor({ rejectType: "PUBLISH_WORKFLOW", rejectWith: "Workflow has no steps" });
-    await expect(instantiatePipeline({ ...opts, fetchImpl })).rejects.toThrow(/PUBLISH_WORKFLOW.*Workflow has no steps/);
+    const { fetchImpl, calls } = fakeReactor({ rejectType: "SET_WORKFLOW_NAME", rejectWith: "Name is empty" });
+    await expect(instantiatePipeline({ ...opts, fetchImpl })).rejects.toThrow(/SET_WORKFLOW_NAME.*Name is empty/);
     const deletes = calls.filter((c) => c.query.includes("deleteDocument")).map((c) => c.variables.id);
     expect(deletes.sort()).toEqual(["doc1", "doc2"]);
   });

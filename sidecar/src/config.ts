@@ -45,7 +45,7 @@ export function readSidecarConfig(env: Env): SidecarConfig {
 }
 
 /** Spec §4.2: the Switchboard matrix. environment.ts decides what else the engine inherits — an OS/session allowlist, nothing more. */
-export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, openModeAddress = "local"): Record<string, string> {
+export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, openModeAddress = "local", egressAllow: readonly string[] = []): Record<string, string> {
   const origin = `http://127.0.0.1:${cfg.port}`;
   const flag = cfg.protected ? "true" : "false";
   return {
@@ -65,7 +65,8 @@ export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, o
     ADMINS: cfg.protected ? (cfg.adminAddress ?? "") : "",
     PH_WORKFLOWS_ENABLED: "1",
     PH_WORKFLOWS_SECRETS_MASTER_KEY: workflowsMasterKey,
-    PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES: "127.0.0.1/32,::1/128",
+    // Loopback always (the engine itself, a local model server); plus the saved model endpoint when it is on the local network.
+    PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES: ["127.0.0.1/32", "::1/128", ...egressAllow].join(","),
     SWITCHBOARD_APP_NAME: "desktop-knowledge-vault",
     MCP_ENABLED: "true",
     LOG_LEVEL: cfg.logLevel,

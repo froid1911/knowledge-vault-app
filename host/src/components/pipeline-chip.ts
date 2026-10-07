@@ -13,6 +13,7 @@ export type ChipDescription = { label: string; tone: ChipTone; action?: ChipActi
 export function describePipeline(status: PipelineStatus): ChipDescription {
   if (status.state === "unconfigured") return { label: "Processing off", tone: "action", action: "models", actionLabel: "Set up a model" };
   if (status.state === "missing") return { label: "Processing not set up", tone: "action", action: "setup", actionLabel: "Set up" };
+  if (status.state === "stale") return { label: "Processing needs an update", tone: "action", action: "setup", actionLabel: "Update" };
   if (status.trigger?.lastError) return { label: "Processing: trigger error", tone: "warn", action: "runs", actionLabel: "See runs" };
   if (status.trigger && status.trigger.status !== "ENABLED") return { label: "Processing paused", tone: "quiet", action: "runs", actionLabel: "See runs" };
   const run = status.lastRun;

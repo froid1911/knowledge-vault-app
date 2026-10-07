@@ -17,3 +17,13 @@ describe("validateModelEndpoint", () => {
     expect(await validateModelEndpoint("http://127.0.0.1:11434/v1", "x", down)).toEqual({ ok: false, detail: "Could not reach http://127.0.0.1:11434/v1: ECONNREFUSED" });
   });
 });
+
+describe("validateModelEndpoint — a server on the local network", () => {
+  it("warns that the engine must be allowed to reach it, loopback and public hosts not", async () => {
+    const lan = await validateModelEndpoint("http://192.168.1.20:11434/v1", "x", f(200, { data: [{ id: "a" }] }));
+    expect(lan.ok).toBe(true);
+    expect(lan.warning).toMatch(/local network/);
+    expect((await validateModelEndpoint("http://127.0.0.1:11434/v1", "x", f(200, { data: [] }))).warning).toBeUndefined();
+    expect((await validateModelEndpoint("https://openrouter.ai/api/v1", "x", f(200, { data: [] }))).warning).toBeUndefined();
+  });
+});

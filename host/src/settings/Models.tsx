@@ -12,7 +12,7 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [verdict, setVerdict] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [verdict, setVerdict] = useState<{ ok: boolean; detail: string; warning?: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +38,9 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
     try {
       const next = await api.saveSettings(info, { models: { endpoint, model, ...(apiKey ? { apiKey } : {}) } });
       setSettings(next);
+      // The engine normalises what was pasted (a chat-completions URL becomes the API root): the form shows its value.
+      setEndpoint(next.models.endpoint);
+      setModel(next.models.model);
       setApiKey("");
       setSaved(true);
     } catch (err) {
@@ -77,7 +80,7 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
         <form className="kv-form" onSubmit={(e) => void submit(e)}>
           <label htmlFor="models-endpoint">Endpoint</label>
           <input id="models-endpoint" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://openrouter.ai/api/v1" disabled={busy} />
-          <label htmlFor="models-model">Model</label>
+          <label htmlFor="models-model">Model (required for processing)</label>
           <input id="models-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="anthropic/claude-sonnet-4" disabled={busy} />
           <label htmlFor="models-key">API key</label>
           <div className="kv-form-inline">
@@ -95,6 +98,7 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
             {saved && <span className="kv-form-saved" role="status">Saved</span>}
           </div>
           {verdict && <p role="status" className={verdict.ok ? "kv-form-saved" : "kv-error"}>{verdict.detail}</p>}
+          {verdict?.warning && <p className="kv-hint">{verdict.warning}</p>}
           {error && <p role="alert" className="kv-error">{error}</p>}
         </form>
       )}

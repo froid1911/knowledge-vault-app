@@ -17,6 +17,7 @@ import { singleFlight } from "./single-flight.js";
 import { readModelKey, readSettings, writeSettings } from "./settings.js";
 import { createPipelineManager } from "./pipelines.js";
 import { validateModelEndpoint } from "./models-validate.js";
+import { privateHostAllow } from "./egress.js";
 import type { PipelineTemplate } from "./templates.js";
 import { createRequire } from "node:module";
 import { createProtectionSwitch } from "./protection.js";
@@ -78,7 +79,9 @@ async function main(): Promise<void> {
     () => "local",
   );
   // Spec §4.2: the engine's environment is the matrix plus an OS/session allowlist. Nothing else is inherited.
-  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, workflowsKey, appDid)));
+  // A model server on the local network needs an egress entry (the runtime refuses private addresses otherwise).
+  const lanModelServer = privateHostAllow(readSettings(cfg.dataDir).models.endpoint);
+  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, workflowsKey, appDid, lanModelServer ? [lanModelServer] : [])));
 
   // A missing package directory would degrade to an engine without the vault (the loader logs a miss and goes on); fail loudly instead.
   for (const dir of PACKAGE_DIRS) {
@@ -136,6 +139,7 @@ async function main(): Promise<void> {
     identity: { status: () => identity.status(), token: (expiresIn) => identity.token(expiresIn) },
     workflowsDrive,
     vaultName: async (id) => (await listVaultDrives(origin, engineFetch)).find((v) => v.id === id)?.name ?? "Vault",
+    engineProtected: cfg.protected,
   });
 
   const control = createControlServer({

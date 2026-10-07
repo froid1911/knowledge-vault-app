@@ -38,6 +38,7 @@ export type ControlDeps = {
     ensure: (vaultId: string) => Promise<EnsureResult>;
     status: (vaultId: string) => Promise<PipelineStatus>;
     remove: (vaultId: string) => Promise<void>;
+    disableAll: (reason: string) => Promise<void>;
   };
   /** Spec §4.4: the protection switch. `set` writes config.json's `local` section and schedules the engine's restart. */
   protection: {
@@ -206,6 +207,8 @@ export function createControlServer(deps: ControlDeps) {
         const patch = settingsPatch(await readJson(req));
         const settings = deps.writeSettings(patch);
         if (patch.conversion) await deps.applyConversion(settings.conversion);
+        // Removing the key must stop its use: the pipelines' runtime secret still holds it.
+        if (patch.models && (patch.models.apiKey === "" || patch.models.apiKey === null)) await deps.pipelines.disableAll("the model key was removed");
         return send(res, 200, settings, allowed);
       }
       // conversion helper (Plan 4)

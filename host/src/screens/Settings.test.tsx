@@ -35,10 +35,10 @@ function api(over: Partial<SettingsApi> = {}): SettingsApi {
     renameVault: vi.fn(async (_i, id: string, name: string) => ({ id, slug: "a", name })),
     deleteVault: vi.fn(async () => {}),
     fetchSettings: vi.fn(async () => ({ version: 1 as const, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local" as const, remoteUrl: "" } })),
-    saveSettings: vi.fn(async (_i, patch: SettingsPatch) => ({ version: 1 as const, models: { endpoint: patch.models?.endpoint ?? "https://openrouter.ai/api/v1", model: patch.models?.model ?? "", hasKey: !!patch.models?.apiKey }, conversion: { mode: patch.conversion?.mode ?? ("local" as const), remoteUrl: patch.conversion?.remoteUrl ?? "" } })),
+    saveSettings: vi.fn(async (_i, patch: SettingsPatch) => ({ version: 1 as const, models: { endpoint: (patch.models?.endpoint ?? "https://openrouter.ai/api/v1").replace(/\/chat\/completions$/, ""), model: patch.models?.model ?? "", hasKey: !!patch.models?.apiKey }, conversion: { mode: patch.conversion?.mode ?? ("local" as const), remoteUrl: patch.conversion?.remoteUrl ?? "" } })),
     fetchStatus: vi.fn(async () => ({ ok: true as const, port: 4301, controlPort: 4302, appVersion: "0.1.0", protected: false, dataDir: "/home/u/.local/share/kv/vault", stackVersion: "6.2.3-dev.44", vaultPackageVersion: "1.0.54-dev.22" })),
     fetchProtection: vi.fn(async () => ({ protected: false, adminAddress: null })),
-    validateModels: vi.fn(async () => ({ ok: false, detail: "The provider refused the key: Invalid API key" })),
+    validateModels: vi.fn(async () => ({ ok: false, detail: "The provider refused the key: Invalid API key", warning: "This server is on your local network; restart the app after saving so the engine may reach it." })),
     setProtection: vi.fn(async (_i, wanted: boolean) => ({ restarting: true, protected: wanted, adminAddress: "0xabc" })),
     fetchConverter: vi.fn(async () => converterReady),
     restartConverter: vi.fn(async () => converterReady),
@@ -82,10 +82,11 @@ describe("Settings", () => {
     const a = api();
     render(<Harness api={a} start="models" />);
     const endpoint = await screen.findByLabelText("Endpoint");
-    fireEvent.change(endpoint, { target: { value: "http://127.0.0.1:11434/v1" } });
-    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "llama3" } });
+    fireEvent.change(endpoint, { target: { value: "http://127.0.0.1:11434/v1/chat/completions" } }); // what a provider page shows
+    fireEvent.change(screen.getByLabelText("Model (required for processing)"), { target: { value: "llama3" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(a.saveSettings).toHaveBeenCalledWith(info, { models: { endpoint: "http://127.0.0.1:11434/v1", model: "llama3" } }));
+    await waitFor(() => expect(a.saveSettings).toHaveBeenCalledWith(info, { models: { endpoint: "http://127.0.0.1:11434/v1/chat/completions", model: "llama3" } }));
+    await waitFor(() => expect((screen.getByLabelText("Endpoint") as HTMLInputElement).value).toBe("http://127.0.0.1:11434/v1")); // the engine's normalised value is what the form shows
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-new" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(a.saveSettings).toHaveBeenLastCalledWith(info, { models: { endpoint: "http://127.0.0.1:11434/v1", model: "llama3", apiKey: "sk-new" } }));
@@ -94,6 +95,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Validate" }));
     await waitFor(() => expect(a.validateModels).toHaveBeenCalledWith(info));
     expect(await screen.findByText("The provider refused the key: Invalid API key")).toBeTruthy();
+    expect(screen.getByText(/on your local network/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
     fireEvent.click(screen.getByLabelText(/^Light/));

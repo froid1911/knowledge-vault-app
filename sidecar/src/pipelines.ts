@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { deleteDocument, gql } from "./reactor-gql.js";
-import type { AppSettings } from "./settings.js";
+import { deleteDocument, execute, gql, toActions } from "./reactor-gql.js";
+import { SettingsError, type AppSettings } from "./settings.js";
 import { instantiatePipeline, type PipelineTemplate } from "./templates.js";
 
 /**
@@ -11,10 +11,22 @@ import { instantiatePipeline, type PipelineTemplate } from "./templates.js";
  * vault with, and the model key. The records live in `<dataDir>/pipelines.json`;
  * the secrets live only in the runtime's store.
  */
-export type PipelineRecord = { workflowId: string; connectionId: string; secretRefs: { token: string; llm: string }; createdAt: string };
+export type PipelineRecord = {
+  workflowId: string;
+  connectionId: string;
+  secretRefs: { token: string; llm: string };
+  createdAt: string;
+  /** The model settings the pipeline was set up with; a change in Settings makes it stale. */
+  models: { endpoint: string; model: string };
+  /** The bearer the piece calls the vault with: minted for a signed-in user, or the "open" placeholder an open engine never reads. */
+  token: { kind: "open" | "minted"; expiresAt: string | null };
+  /** Set when the pipeline was disabled (the model key was removed); the reason is what the chip says. */
+  disabled?: string;
+};
 export type PipelineStatus =
   | { state: "unconfigured" }
   | { state: "missing" }
+  | { state: "stale"; reason: string; workflowId: string; connectionId: string }
   | {
       state: "ready";
       workflowId: string;
@@ -53,16 +65,20 @@ export type PipelineManagerDeps = {
   identity: { status: () => Promise<{ authenticated: boolean }>; token: (expiresIn: number) => Promise<{ token: string }> };
   workflowsDrive: () => Promise<{ id: string }>;
   vaultName: (vaultId: string) => Promise<string>;
+  /** A protected engine answers only authenticated callers: its pipeline must run as the signed-in user. */
+  engineProtected?: boolean;
   instantiate?: typeof instantiatePipeline;
   now?: () => string;
 };
 
 /** The bearer the piece uses lasts long enough to be forgotten about; re-creating the pipeline mints a new one. */
 const ENGINE_TOKEN_SECONDS = 90 * 86_400;
+/** A token this close to its end reads as stale, so the user updates before runs start failing. */
+const TOKEN_RENEW_BEFORE_MS = 7 * 86_400_000;
 
 export function createPipelineManager(deps: PipelineManagerDeps) {
   const f = deps.fetchImpl;
-  const now = deps.now ?? (() => new Date().toISOString());
+  const now = () => (deps.now ?? (() => new Date().toISOString()))(); // read each time: tests move the clock
   const instantiate = deps.instantiate ?? instantiatePipeline;
 
   async function createSecret(value: string, label: string): Promise<string> {
@@ -79,50 +95,116 @@ export function createPipelineManager(deps: PipelineManagerDeps) {
     for (const id of [record.workflowId, record.connectionId]) await deleteDocument(deps.origin, id, f).catch(() => undefined);
     for (const ref of [record.secretRefs.token, record.secretRefs.llm]) await deleteSecret(ref);
   }
-  /** Signed in: a long-lived bearer minted by the identity. Open engine, nobody signed in: any value — the engine never reads it. */
-  async function engineToken(): Promise<string> {
+  /**
+   * Signed in: a long-lived bearer minted by the identity. Open engine, nobody signed in: the
+   * placeholder "open" — the engine never reads it. A protected engine with nobody signed in
+   * has no bearer to give the pipeline: refused (the pipeline would run as nobody).
+   */
+  async function engineToken(): Promise<{ value: string; kind: "open" | "minted"; expiresAt: string | null }> {
+    let authenticated = false;
     try {
-      if ((await deps.identity.status()).authenticated) return (await deps.identity.token(ENGINE_TOKEN_SECONDS)).token;
+      authenticated = (await deps.identity.status()).authenticated;
+      if (authenticated) {
+        const minted = await deps.identity.token(ENGINE_TOKEN_SECONDS);
+        return { value: minted.token, kind: "minted", expiresAt: new Date(Date.parse(now()) + ENGINE_TOKEN_SECONDS * 1000).toISOString() };
+      }
     } catch {
-      // expired or unavailable: fall through
+      authenticated = false; // expired or unavailable
     }
-    return "open";
+    if (deps.engineProtected) throw new SettingsError("Sign in first — on a protected engine the pipeline runs as you.");
+    return { value: "open", kind: "open", expiresAt: null };
+  }
+  const modelsConfigured = (settings: AppSettings) => settings.models.hasKey && settings.models.model.trim().length > 0;
+
+  /** Why a recorded pipeline no longer fits: disabled, other model settings, an "open" bearer on a protected engine, a token near its end. */
+  function staleReason(record: PipelineRecord, settings: AppSettings): string | undefined {
+    if (record.disabled) return record.disabled;
+    // Records written before these fields existed carry neither; they are judged on what they have.
+    if (record.models && (record.models.endpoint !== settings.models.endpoint || record.models.model !== settings.models.model)) return "the model settings changed";
+    if (deps.engineProtected && record.token?.kind === "open") return "the engine is now protected; the pipeline was set up while it was open";
+    if (record.token?.expiresAt) {
+      const left = Date.parse(record.token.expiresAt) - Date.parse(now());
+      if (left <= 0) return "the engine token expired";
+      if (left < TOKEN_RENEW_BEFORE_MS) return "the engine token expires soon";
+    }
+    return undefined;
   }
 
   return {
-    /** Create (or re-create) this vault's pipeline. Nothing happens without a model key. */
+    /** Create (or re-create) this vault's pipeline. Nothing happens without a model key and a model. */
     async ensure(vaultId: string): Promise<EnsureResult> {
       const settings = deps.readSettings();
       const key = deps.readModelKey();
-      if (!settings.models.hasKey || !key) return { state: "unconfigured" };
+      if (!modelsConfigured(settings) || !key) return { state: "unconfigured" };
       if (!deps.template) throw new Error("The installed vault package ships no pipeline template (pieces/knowledge-vault/templates/pipeline.json).");
-      const previous = readPipelines(deps.dataDir)[vaultId];
-      if (previous) await discard(previous);
+      const token = await engineToken(); // before anything is created: a refusal costs nothing
+      const records = readPipelines(deps.dataDir);
+      const previous = records[vaultId];
+      if (previous) {
+        // The record goes first: a failure from here on reads "missing", never "ready" for a pipeline that no longer exists.
+        delete records[vaultId];
+        writePipelines(deps.dataDir, records);
+        await discard(previous);
+      }
       const name = await deps.vaultName(vaultId);
-      const tokenRef = await createSecret(await engineToken(), `${name} — engine token`);
-      const llmRef = await createSecret(key, `${name} — model key`);
       const { id: workflowsDriveId } = await deps.workflowsDrive();
-      const { workflowId, connectionId } = await instantiate({
-        origin: deps.origin,
-        template: deps.template,
-        vaultName: name,
-        driveId: vaultId,
-        workflowsDriveId,
-        secretRefs: { token: tokenRef, llm: llmRef },
-        llm: { baseUrl: settings.models.endpoint, model: settings.models.model },
-        pieceVersion: deps.pieceVersion,
-        now,
-        fetchImpl: f,
-      });
-      writePipelines(deps.dataDir, { ...readPipelines(deps.dataDir), [vaultId]: { workflowId, connectionId, secretRefs: { token: tokenRef, llm: llmRef }, createdAt: now() } });
-      return { state: "ready", workflowId, connectionId };
+      const tokenRef = await createSecret(token.value, `${name} — engine token`);
+      const llmRef = await createSecret(key, `${name} — model key`);
+      try {
+        const { workflowId, connectionId } = await instantiate({
+          origin: deps.origin,
+          template: deps.template,
+          vaultName: name,
+          driveId: vaultId,
+          workflowsDriveId,
+          secretRefs: { token: tokenRef, llm: llmRef },
+          llm: { baseUrl: settings.models.endpoint, model: settings.models.model },
+          pieceVersion: deps.pieceVersion,
+          now,
+          fetchImpl: f,
+        });
+        writePipelines(deps.dataDir, {
+          ...readPipelines(deps.dataDir),
+          [vaultId]: {
+            workflowId,
+            connectionId,
+            secretRefs: { token: tokenRef, llm: llmRef },
+            createdAt: now(),
+            models: { endpoint: settings.models.endpoint, model: settings.models.model },
+            token: { kind: token.kind, expiresAt: token.expiresAt },
+          },
+        });
+        return { state: "ready", workflowId, connectionId };
+      } catch (error) {
+        // instantiatePipeline removed its documents; the two secrets are ours to remove.
+        await deleteSecret(tokenRef);
+        await deleteSecret(llmRef);
+        throw error;
+      }
     },
 
-    /** This vault's pipeline as the runtime sees it: its trigger (filtered to its workflow) and its last run. */
+    /** The model key was removed: every recorded pipeline is disabled and its key secret deleted; the records say why. */
+    async disableAll(reason: string): Promise<void> {
+      const records = readPipelines(deps.dataDir);
+      for (const [vaultId, record] of Object.entries(records)) {
+        await execute(deps.origin, record.workflowId, toActions([{ type: "SET_WORKFLOW_STATUS", input: { status: "DISABLED" } }], now), f).catch(() => undefined);
+        await deleteSecret(record.secretRefs.llm);
+        records[vaultId] = { ...record, disabled: reason };
+      }
+      writePipelines(deps.dataDir, records);
+    },
+
+    /**
+     * This vault's pipeline as the runtime sees it: its trigger (filtered to its workflow) and its
+     * last run — or `stale` with the reason when what it was set up with no longer holds.
+     */
     async status(vaultId: string): Promise<PipelineStatus> {
-      if (!deps.readSettings().models.hasKey) return { state: "unconfigured" };
+      const settings = deps.readSettings();
+      if (!modelsConfigured(settings)) return { state: "unconfigured" };
       const record = readPipelines(deps.dataDir)[vaultId];
       if (!record) return { state: "missing" };
+      const stale = staleReason(record, settings);
+      if (stale) return { state: "stale", reason: stale, workflowId: record.workflowId, connectionId: record.connectionId };
       const data = await gql<{
         workflowRuntime: {
           triggerStates: Array<{ workflowId: string; status: string; lastPollAt: string | null; lastError: string | null }>;
