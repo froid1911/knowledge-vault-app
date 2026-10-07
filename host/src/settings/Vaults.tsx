@@ -6,6 +6,7 @@ import type { SidecarInfo } from "../sidecar.js";
 import { shortAddress, type IdentityController } from "../state/use-identity.js";
 import type { LocalProtection, VaultSummary } from "../vaults.js";
 import { MaintenanceCards } from "./Maintenance.js";
+import { invokeIfTauri, isTauri } from "../shell/tauri.js";
 
 const number = new Intl.NumberFormat("en-US");
 const RESTART_GRACE_MS = 90_000;
@@ -190,7 +191,14 @@ export function VaultsSection({
               <div className="kv-settings-row-main">
                 <span className="kv-settings-row-title">{v.name}</span>
                 <span className="kv-settings-row-meta">{number.format(v.noteCount)} note{v.noteCount === 1 ? "" : "s"}</span>
-                {exported[v.id] && <span className="kv-settings-row-meta kv-mono">{exported[v.id]}</span>}
+                {exported[v.id] && (
+                  <span className="kv-settings-row-meta kv-mono">
+                    {exported[v.id]}
+                    {isTauri() && !exported[v.id]!.startsWith("Export failed") && (
+                      <button type="button" className="kv-link-button" onClick={() => void invokeIfTauri("reveal_path", { path: exported[v.id] })}> Show</button>
+                    )}
+                  </span>
+                )}
               </div>
               <div className="kv-settings-row-actions">
                 <button type="button" className="kv-button" disabled={exporting === v.id} title="Write the vault as documents (the drive-sync format) under the data folder's exports/" onClick={() => void exportOne(v)}>{exporting === v.id ? "Exporting…" : "Export"}</button>

@@ -53,10 +53,11 @@ export type ModelSettings = { endpoint: string; model: string; hasKey: boolean }
 /** Where documents convert (Plan 4): the helper on this computer, another server by URL, or nowhere. */
 export type ConversionMode = "local" | "remote" | "off";
 export type ConversionSettings = { mode: ConversionMode; remoteUrl: string };
-export type AppSettings = { version: 1; models: ModelSettings; conversion: ConversionSettings };
+export type AppSettings = { version: 1; models: ModelSettings; conversion: ConversionSettings; ui?: { closeToTray: boolean } };
 export type SettingsPatch = {
   models?: { endpoint?: string; model?: string; apiKey?: string | null };
   conversion?: { mode?: ConversionMode; remoteUrl?: string };
+  ui?: { closeToTray?: boolean };
 };
 export type ConverterStatus = {
   mode: ConversionMode;

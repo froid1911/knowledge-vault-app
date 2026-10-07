@@ -106,6 +106,13 @@ function settingsPatch(body: Record<string, unknown>): SettingsPatch {
     }
     patch.models = mp;
   }
+  const ui = body.ui;
+  if (ui !== undefined) {
+    if (!ui || typeof ui !== "object" || Array.isArray(ui)) throw new BadRequestError("`ui` must be an object.");
+    const closeToTray = (ui as Record<string, unknown>).closeToTray;
+    if (closeToTray !== undefined && typeof closeToTray !== "boolean") throw new BadRequestError("`ui.closeToTray` must be a boolean.");
+    patch.ui = closeToTray === undefined ? {} : { closeToTray };
+  }
   const conversion = body.conversion;
   if (conversion !== undefined) {
     if (!conversion || typeof conversion !== "object" || Array.isArray(conversion)) throw new BadRequestError("`conversion` must be an object.");

@@ -256,4 +256,12 @@ describe("Settings", () => {
     render(<Harness api={api()} start="about" />);
     expect(await screen.findByText("Update checks are off until the app has a release feed.")).toBeTruthy();
   });
+  it("keeps the engine running when the window closes, unless switched off in Appearance", async () => {
+    const a = api({ fetchSettings: vi.fn(async () => ({ version: 1 as const, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local" as const, remoteUrl: "" }, ui: { closeToTray: true } })) });
+    render(<Harness api={a} start="appearance" />);
+    const box = (await screen.findByLabelText("Keep the engine running when the window closes")) as HTMLInputElement;
+    await waitFor(() => expect(box.checked).toBe(true));
+    fireEvent.click(box);
+    await waitFor(() => expect(a.saveSettings).toHaveBeenCalledWith(info, { ui: { closeToTray: false } }));
+  });
 });

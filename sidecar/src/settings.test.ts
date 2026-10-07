@@ -12,7 +12,15 @@ describe("settings", () => {
       version: 1,
       models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false },
       conversion: { mode: "local", remoteUrl: "" },
+      ui: { closeToTray: true },
     });
+  });
+  it("keeps the window-close preference in config.json's ui section, beside other ui keys", () => {
+    const d = dir();
+    writeFileSync(join(d, "config.json"), JSON.stringify({ version: 1, ui: { lastVault: "v1" } }));
+    expect(writeSettings(d, { ui: { closeToTray: false } }).ui).toEqual({ closeToTray: false });
+    expect(JSON.parse(readFileSync(join(d, "config.json"), "utf8")).ui).toEqual({ lastVault: "v1", closeToTray: false });
+    expect(readSettings(d).ui.closeToTray).toBe(false);
   });
   it("persists endpoint and model in config.json, the key in secrets/ with mode 0600, and reports only hasKey", () => {
     const d = dir();

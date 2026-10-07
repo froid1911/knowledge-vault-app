@@ -37,6 +37,38 @@ impl LocalProtection {
     }
 }
 
+/// Plan 5: the `ui` section of config.json, written by the sidecar (Settings › Appearance) and read
+/// by the shell at every window close. Closing hides the window to the tray unless the user said no.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UiConfig {
+    pub close_to_tray: bool,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        UiConfig {
+            close_to_tray: true,
+        }
+    }
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct UiFile {
+    ui: UiConfig,
+}
+
+impl UiConfig {
+    pub fn load(path: &Path) -> UiConfig {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<UiFile>(&text).ok())
+            .map(|file| file.ui)
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Clone)]
 pub struct AppPaths {
     /// Spec §3.3: the app-data directory (reactor/, read-model/, secrets/, logs/ live here).
@@ -108,6 +140,32 @@ mod tests {
         assert!(!LocalProtection::load(&path).protected);
         std::fs::write(&path, "{nope").unwrap();
         assert!(!LocalProtection::load(&path).protected);
+    }
+
+    #[test]
+    fn ui_config_keeps_the_engine_running_unless_the_user_turned_it_off() {
+        let dir = std::env::temp_dir().join(format!("kv-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            UiConfig::load(&path).close_to_tray,
+            "missing file → keep running"
+        );
+        std::fs::write(&path, r#"{"version":1,"local":{"protected":false}}"#).unwrap();
+        assert!(
+            UiConfig::load(&path).close_to_tray,
+            "missing section → keep running"
+        );
+        std::fs::write(&path, r#"{"ui":{"closeToTray":false}}"#).unwrap();
+        assert!(!UiConfig::load(&path).close_to_tray);
+        std::fs::write(&path, r#"{"ui":{"closeToTray":true}}"#).unwrap();
+        assert!(UiConfig::load(&path).close_to_tray);
+        std::fs::write(&path, "{nope").unwrap();
+        assert!(
+            UiConfig::load(&path).close_to_tray,
+            "unreadable → keep running"
+        );
     }
 
     #[test]

@@ -94,7 +94,7 @@ export function Settings({ info, section, onSection, onBack, onOpenWorkflows, ap
         <section className="kv-settings-panel" aria-labelledby="settings-section-heading">
           <h2 id="settings-section-heading" className="kv-settings-heading">{LABELS[section]}</h2>
           {section === "vaults" && <VaultsSection info={info} api={api} identity={identity} />}
-          {section === "appearance" && <AppearanceSection />}
+          {section === "appearance" && <AppearanceSection info={info} api={api} />}
           {section === "models" && <ModelsSection info={info} api={api} />}
           {section === "conversion" && <ConversionSection info={info} api={api} />}
           {section === "workflows" && <WorkflowsSection onOpen={onOpenWorkflows} />}

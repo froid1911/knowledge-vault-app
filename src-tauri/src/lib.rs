@@ -3,22 +3,82 @@ mod config;
 mod log_tail;
 mod navigation;
 mod sidecar;
+mod tray;
 
-use config::{AppPaths, DEFAULT_PORTS, Ports, new_control_token, pick_free_port};
+use config::{AppPaths, DEFAULT_PORTS, Ports, UiConfig, new_control_token, pick_free_port};
 use sidecar::{
     ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar, stop_sidecar_blocking,
 };
+use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
+
+/// The engine's data directory, known once the engine is spawned or adopted (open_logs, reveal_path, close-to-tray).
+#[derive(Default)]
+struct DataDir(Mutex<Option<PathBuf>>);
+
+fn data_dir(app: &AppHandle) -> Option<PathBuf> {
+    app.state::<DataDir>().0.lock().ok()?.clone()
+}
+
+/// Stop the engine (waiting for its graceful stop), then exit — the tray's Quit.
+pub(crate) fn quit(app: &AppHandle) {
+    stop_sidecar_blocking(app);
+    app.exit(0);
+}
+
+/// Open the engine's logs folder in the file manager.
+#[tauri::command]
+fn open_logs(app: AppHandle) -> Result<(), String> {
+    let dir = data_dir(&app)
+        .ok_or("The engine's data folder is not known yet.")?
+        .join("logs");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Show a file the app wrote (an export, a backup) in the file manager — only inside the data folder.
+#[tauri::command]
+fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
+    let root = data_dir(&app).ok_or("The engine's data folder is not known yet.")?;
+    let target = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    if !target.starts_with(&root) {
+        return Err("Only files in the app's data folder can be shown.".into());
+    }
+    tauri_plugin_opener::reveal_item_in_dir(&target).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    quit(&app);
+}
 
 pub fn run() {
     tauri::Builder::default()
+        // First: a second launch hands over to this one and exits (spec §9 — one engine per store).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main(app);
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(SidecarState::default()))
-        .invoke_handler(tauri::generate_handler![sidecar_info])
+        .manage(DataDir::default())
+        .manage(tray::Tray::default())
+        .invoke_handler(tauri::generate_handler![
+            sidecar_info,
+            open_logs,
+            reveal_path,
+            quit_app
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
+            if let Err(e) = tray::build(&handle) {
+                eprintln!("[shell] no system tray ({e}); closing the window will quit the app");
+            }
             // The window is built here rather than declared in tauri.conf.json so it can carry
             // the navigation guard (spec §5.8): external pages go to the system browser.
             let host_port = DEFAULT_PORTS.host;
@@ -60,12 +120,17 @@ pub fn run() {
                     control_token: t,
                 };
                 app.state::<Mutex<SidecarState>>().lock().unwrap().ready = Some(info);
+                if let Ok(dir) = std::env::var("KV_DEV_DATA_DIR") {
+                    *app.state::<DataDir>().0.lock().unwrap() = Some(PathBuf::from(dir));
+                }
+                tray::refresh(&handle, "ready");
                 return Ok(());
             }
             // Spec §3.3: the engine owns `<app-data>/vault/`. The webview keeps its own profile
             // (CacheStorage, databases, hsts-storage.sqlite, …) in the app-data root, so the two never mix.
             let data_dir = app.path().app_data_dir()?.join("vault");
             std::fs::create_dir_all(&data_dir)?;
+            *app.state::<DataDir>().0.lock().unwrap() = Some(data_dir.clone());
             let sidecar_main = std::env::current_dir()?
                 .join("../sidecar/dist/main.js")
                 .canonicalize()?;
@@ -88,8 +153,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                stop_sidecar(window.app_handle());
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                // Plan 5: with a tray, closing hides the window and the engine keeps serving
+                // tools; read at every close, so the Appearance switch applies at once.
+                let keep = app.state::<tray::Tray>().available()
+                    && data_dir(app)
+                        .map(|d| UiConfig::load(&d.join("config.json")).close_to_tray)
+                        .unwrap_or(true);
+                if keep {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    stop_sidecar(app);
+                }
             }
         })
         .build(tauri::generate_context!())

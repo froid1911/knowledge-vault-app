@@ -10,7 +10,7 @@ let close: (() => Promise<void>) | undefined;
 let deleted: string[] = [];
 let signedIn = false;
 let remotes: RemoteVault[] = [];
-let settings: AppSettings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } };
+let settings: AppSettings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" }, ui: { closeToTray: true } };
 let applied: AppSettings["conversion"][] = [];
 let restarted = 0;
 const converterStatus = { mode: "local" as const, state: "ready" as const, url: "http://127.0.0.1:5999", localUrl: "http://127.0.0.1:5999", pid: 4242, exitCode: null, restarts: 0, logPath: "/data/vault/logs/converter.log", health: { ok: true, binding: false }, error: null, installed: { binding: { installed: false, version: null, supported: true, platform: "linux-x64-gnu" as const, reason: null }, models: { installed: false } }, job: null };
@@ -24,7 +24,7 @@ let disabledFor: string[] = [];
 let scheduled: unknown[] = [];
 let shutdowns = 0;
 let debugRoutes = false;
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; disabledFor = []; scheduled = []; shutdowns = 0; debugRoutes = false; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; disabledFor = []; scheduled = []; shutdowns = 0; debugRoutes = false; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" }, ui: { closeToTray: true } }; });
 
 async function start() {
   const server = createControlServer(await harnessDeps());

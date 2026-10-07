@@ -189,7 +189,9 @@ fn snapshot(app: &AppHandle) -> SidecarStatus {
 }
 
 fn emit_status(app: &AppHandle) {
-    let _ = app.emit("sidecar:status", snapshot(app));
+    let status = snapshot(app);
+    crate::tray::refresh(app, status.state);
+    let _ = app.emit("sidecar:status", status);
 }
 
 pub struct SidecarEnv;

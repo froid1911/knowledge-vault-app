@@ -145,7 +145,7 @@ vite.stdout.pipe(process.stdout);
 if (!noShell) {
   await new Promise((r) => setTimeout(r, 1500));
   const shell = run("bunx", ["@tauri-apps/cli", "dev"], {
-    env: { ...process.env, KV_DEV_SIDECAR_PORT: String(ready.port), KV_DEV_CONTROL_PORT: String(ready.controlPort), KV_DEV_CONTROL_TOKEN: TOKEN },
+    env: { ...process.env, KV_DEV_SIDECAR_PORT: String(ready.port), KV_DEV_CONTROL_PORT: String(ready.controlPort), KV_DEV_CONTROL_TOKEN: TOKEN, KV_DEV_DATA_DIR: dataDir },
   });
   shell.stdout.pipe(process.stdout);
 }

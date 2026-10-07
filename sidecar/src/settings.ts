@@ -11,10 +11,13 @@ export type ModelSettings = { endpoint: string; model: string; hasKey: boolean }
 export type ConversionMode = "local" | "remote" | "off";
 export type ConversionSettings = { mode: ConversionMode; remoteUrl: string };
 export const CONVERSION_MODES: readonly ConversionMode[] = ["local", "remote", "off"];
-export type AppSettings = { version: 1; models: ModelSettings; conversion: ConversionSettings };
+/** Plan 5: the shell's window behaviour — closing the window keeps the engine serving tools from the tray. */
+export type UiSettings = { closeToTray: boolean };
+export type AppSettings = { version: 1; models: ModelSettings; conversion: ConversionSettings; ui: UiSettings };
 export type SettingsPatch = {
   models?: { endpoint?: string; model?: string; apiKey?: string | null };
   conversion?: { mode?: ConversionMode; remoteUrl?: string };
+  ui?: { closeToTray?: boolean };
 };
 
 /** A rejected value (the control API answers 400). */
@@ -74,6 +77,7 @@ export function readSettings(dataDir: string): AppSettings {
   const raw = readRaw(dataDir);
   const models = (raw.models && typeof raw.models === "object" ? raw.models : {}) as Record<string, unknown>;
   const conversion = (raw.conversion && typeof raw.conversion === "object" ? raw.conversion : {}) as Record<string, unknown>;
+  const ui = (raw.ui && typeof raw.ui === "object" ? raw.ui : {}) as Record<string, unknown>;
   return {
     version: 1,
     models: {
@@ -85,6 +89,7 @@ export function readSettings(dataDir: string): AppSettings {
       mode: CONVERSION_MODES.includes(conversion.mode as ConversionMode) ? (conversion.mode as ConversionMode) : "local",
       remoteUrl: typeof conversion.remoteUrl === "string" ? conversion.remoteUrl : "",
     },
+    ui: { closeToTray: ui.closeToTray !== false },
   };
 }
 
@@ -122,8 +127,11 @@ export function writeSettings(dataDir: string, patch: SettingsPatch): AppSetting
     }
     if (conversion.mode === "remote" && !conversion.remoteUrl) throw new SettingsError("Another server needs its URL.");
   }
+  // The ui section is shared with the shell (it reads closeToTray at every window close); other keys in it survive.
+  const ui = { ...(raw.ui && typeof raw.ui === "object" ? (raw.ui as Record<string, unknown>) : {}) };
+  if (patch.ui && typeof patch.ui.closeToTray === "boolean") ui.closeToTray = patch.ui.closeToTray;
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1, models, conversion }, null, 2) + "\n");
+  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1, models, conversion, ...(Object.keys(ui).length ? { ui } : {}) }, null, 2) + "\n");
   return readSettings(dataDir);
 }
 

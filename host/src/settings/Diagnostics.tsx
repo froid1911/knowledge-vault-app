@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "../screens/Settings.js";
 import type { SidecarInfo } from "../sidecar.js";
 import type { EngineStatus } from "../vaults.js";
+import { invokeIfTauri, isTauri } from "../shell/tauri.js";
 
 function CopyBlock({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -94,6 +95,7 @@ export function DiagnosticsSection({ info, api }: { info: SidecarInfo; api: Sett
           )}
           <div className="kv-form-actions">
             <button type="button" className="kv-button" onClick={() => void copyDiagnostics()}>{copied ? "Copied" : "Copy diagnostics"}</button>
+            {isTauri() && <button type="button" className="kv-button" onClick={() => void invokeIfTauri("open_logs")}>Open logs</button>}
             <span className="kv-hint">Versions, ports, the data folder and these lines — credentials removed.</span>
           </div>
         </>
