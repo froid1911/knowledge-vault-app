@@ -5,11 +5,13 @@ import {
   setDefaultDrivesUrl,
   setDocumentCache,
   setReactorClient,
+  setReactorClientModule,
   setSwitchboardUrl,
   setVetraPackageManager,
   StaticPackageManager,
 } from "@powerhousedao/reactor-browser";
 import type { DocumentModelLib } from "document-model";
+import { remoteClientModule } from "./remote-client-module.js";
 import type { SidecarInfo } from "./sidecar.js";
 
 export type Target = {
@@ -47,6 +49,10 @@ export function activate(target: Target): GraphQLReactorClient {
   const client = clientFor(target);
   setReactorClient(client);
   setDocumentCache(new DocumentCache(client));
+  // reactor-browser's drive helpers (Workflow Studio's create and delete) call
+  // Connect's in-browser reactor; this answers them over the engine's GraphQL API.
+  // Its reactorModule stays empty, so sync and registry lookups still see none.
+  setReactorClientModule(remoteClientModule(client, libs) as unknown as Parameters<typeof setReactorClientModule>[0]);
   setSwitchboardUrl(`${target.origin}/graphql`);
   // Workflow Studio derives its runtime endpoint from the drive's sync channel or, failing
   // that, from the default drives URL — never from the Switchboard URL. There is no sync
