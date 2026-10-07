@@ -1,5 +1,5 @@
 // Downloads the official Node binary for a target, verifies it against the checksum pinned in
-// scripts/node-version.mjs, and writes src-tauri/binaries/kv-node-<triple> (Tauri's external-binary
+// scripts/node-version.mjs, and writes src-tauri/binaries/kv-node-<triple>[.exe] (Tauri's external-binary
 // naming; not `node`: a .deb installs external binaries into /usr/bin, where `node` belongs to the system).
 //   node scripts/fetch-node.mjs [--target <triple>]   (default: this machine's rustc host triple)
 import { execFileSync } from "node:child_process";
@@ -15,7 +15,7 @@ const arg = (name) => {
 };
 const triple = arg("--target") ?? /host: (\S+)/.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))[1];
 const asset = nodeAsset(NODE_VERSION, triple);
-const cache = join(homedir(), ".cache", "desktop-knowledge-vault", "node", NODE_VERSION);
+const cache = join(homedir(), ".cache", "knowledge-vault-app", "node", NODE_VERSION);
 mkdirSync(cache, { recursive: true });
 
 async function download(url, to) {
@@ -43,8 +43,9 @@ console.log(`[fetch-node] ${asset.archive} verified`);
 const extractTo = join(cache, "extract");
 rmSync(extractTo, { recursive: true, force: true });
 mkdirSync(extractTo, { recursive: true });
-execFileSync("tar", ["-xJf", archive, "-C", extractTo, asset.binary]);
-const out = resolve("src-tauri", "binaries", `kv-node-${triple}`);
+// `tar -xf` detects the format itself: GNU tar reads .tar.xz, and Windows' tar (bsdtar) reads the zip.
+execFileSync("tar", ["-xf", archive, "-C", extractTo, asset.binary]);
+const out = resolve("src-tauri", "binaries", asset.output);
 mkdirSync(resolve("src-tauri", "binaries"), { recursive: true });
 copyFileSync(join(extractTo, asset.binary), out);
 chmodSync(out, 0o755);

@@ -14,6 +14,7 @@ const TARGETS = {
   "aarch64-unknown-linux-gnu": { os: "linux", cpu: "arm64", libc: "gnu" },
   "aarch64-apple-darwin": { os: "darwin", cpu: "arm64", libc: null },
   "x86_64-apple-darwin": { os: "darwin", cpu: "x64", libc: null },
+  "x86_64-pc-windows-msvc": { os: "win32", cpu: "x64", libc: null },
 };
 const OS = new Set(["linux", "linuxmusl", "darwin", "win32", "windows", "android", "freebsd", "openbsd", "netbsd", "sunos", "aix", "wasm32", "openharmony", "wasi"]);
 const CPU = new Set(["x64", "arm64", "arm", "ia32", "s390x", "ppc64", "riscv64", "loong64", "universal", "x86_64", "aarch64", "mips64el"]);
@@ -28,7 +29,8 @@ export function foreignNative(name, target) {
   const cpu = tokens.find((t) => CPU.has(t));
   if (!os || !cpu) return false; // not a platform build
   const libc = tokens.find((t) => LIBC.has(t)) ?? (os === "linuxmusl" ? "musl" : null);
-  const osName = os === "linuxmusl" ? "linux" : os;
+  // Windows builds are named win32 or windows; macOS ones darwin.
+  const osName = os === "linuxmusl" ? "linux" : os === "windows" ? "win32" : os;
   if (osName !== target.os) return true;
   if (cpu !== "universal" && (CPU_ALIAS[cpu] ?? cpu) !== target.cpu) return true;
   if (target.os === "linux" && libc && !libc.startsWith(target.libc)) return true;

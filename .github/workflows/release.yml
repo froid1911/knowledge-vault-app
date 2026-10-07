@@ -1,9 +1,11 @@
-# Merging dev into main is the release act (spec §11). Every target builds into a DRAFT release and is
-# checked there; the release is made public only when every target succeeded (Plan 6 review I1/I2).
+# A release is made on purpose: push a version tag (git tag v0.1.0 && git push origin v0.1.0), or run this
+# workflow from the Actions tab. Every target builds into a DRAFT release and is checked there; the release is
+# made public only when every target succeeded.
 name: Release
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -47,6 +49,8 @@ jobs:
             target: aarch64-apple-darwin
           - runner: macos-15-intel # macos-13 is retired; this is GitHub's x86_64 macOS image
             target: x86_64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
@@ -73,7 +77,7 @@ jobs:
           bun-version: 1.4.2
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.cache/desktop-knowledge-vault/node
+          path: ~/.cache/knowledge-vault-app/node
           key: kv-node-${{ matrix.target }}-${{ hashFiles('scripts/node-version.mjs') }}
       - run: bun install --frozen-lockfile
       - run: bun run versions:check
@@ -111,6 +115,10 @@ jobs:
       - name: Smoke the macOS app
         if: runner.os == 'macOS'
         run: node scripts/smoke-app.mjs
+      - name: The Windows installer was produced
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ls -la src-tauri/target/release/bundle/nsis/*.exe
 
   publish:
     needs: [preflight, build]

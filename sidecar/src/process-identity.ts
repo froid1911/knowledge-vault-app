@@ -24,10 +24,27 @@ function alive(pid: number): boolean {
   }
 }
 
+type Run = (file: string, args: string[]) => string;
+const run: Run = (file, args) => execFileSync(file, args, { encoding: "utf8", windowsHide: true });
+
+/**
+ * A process's command line on Windows, which has no /proc and no `ps -o command=`: PowerShell
+ * reads it from Win32_Process. About a second, which is fine — it runs at start-up only.
+ */
+export function windowsCommandLine(pid: number, exec: Run = run): string | undefined {
+  try {
+    const out = exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${Math.trunc(pid)}").CommandLine`]);
+    return out.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function command(pid: number): string | undefined {
   try {
     if (process.platform === "linux") return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ").trim() || undefined;
     if (process.platform === "darwin") return execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).trim() || undefined;
+    if (process.platform === "win32") return windowsCommandLine(pid);
   } catch {
     return undefined;
   }

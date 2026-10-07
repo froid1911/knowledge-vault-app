@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { prune } from "./prune.mjs";
+import { foreignNative, prune } from "./prune.mjs";
 
 const FILES = [
   "onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node",
@@ -63,6 +63,13 @@ describe("prune", () => {
     expect(has(nm, "@img/sharp-darwin-arm64/lib/sharp.node")).toBe(true);
     expect(has(nm, "@napi-rs/canvas-darwin-arm64/skia.node")).toBe(true);
     for (const f of ["onnxruntime-node/bin/napi-v6/darwin/x64", "onnxruntime-node/bin/napi-v6/linux", "@img/sharp-linux-x64", "@img/sharp-darwin-x64", "@napi-rs/canvas-linux-x64-gnu"]) expect(has(nm, f), f).toBe(false);
+  });
+  it("keeps the Windows x64 natives for that target, whether named win32 or windows, and drops the others", () => {
+    const t = "x86_64-pc-windows-msvc";
+    expect(foreignNative("@img/sharp-win32-x64", { os: "win32", cpu: "x64", libc: null })).toBe(false);
+    for (const name of ["@img/sharp-win32-x64", "@napi-rs/canvas-win32-x64-msvc", "docling.rs-win32-x64-msvc", "@oxfmt/binding-windows-x64"]) expect(foreignNative(name, { os: "win32", cpu: "x64", libc: null }), name).toBe(false);
+    for (const name of ["@img/sharp-linux-x64", "@img/sharp-darwin-arm64", "@napi-rs/canvas-win32-arm64-msvc", "lightningcss-linux-x64-musl"]) expect(foreignNative(name, { os: "win32", cpu: "x64", libc: null }), name).toBe(true);
+    expect(() => prune(tree(), t)).not.toThrow();
   });
   it("refuses a target it does not know", () => {
     expect(() => prune(tree(), "sparc-sun-solaris")).toThrow(/sparc/);
