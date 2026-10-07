@@ -16,6 +16,7 @@ use sidecar::{ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 /// The engine's data directory, known once the engine is spawned or adopted (open_logs, reveal_path, close-to-tray).
 #[derive(Default)]
@@ -132,6 +133,7 @@ pub fn run() {
         .manage(Mutex::new(SidecarState::default()))
         .manage(DataDir::default())
         .manage(tray::Tray::default())
+        .plugin(tauri_plugin_dialog::init())
         .manage(download::Downloads::default())
         .manage(smoke::HostLoaded::default())
         .invoke_handler(tauri::generate_handler![
@@ -189,36 +191,61 @@ pub fn run() {
                     let app = webview.app_handle();
                     match event {
                         DownloadEvent::Requested { url, destination } => {
-                            let dir = app
-                                .path()
-                                .download_dir()
-                                .or_else(|_| app.path().home_dir())
-                                .unwrap_or_else(|_| std::env::temp_dir());
+                            // Written to a staging folder first; where it goes is the user's choice once it is complete.
                             let name = download::file_name_for(destination, &url);
-                            let target = download::unique_destination(&dir, &name);
-                            app.state::<download::Downloads>()
-                                .0
-                                .lock()
-                                .unwrap()
-                                .insert(url.to_string(), target.clone());
-                            *destination = target;
+                            let root = app
+                                .path()
+                                .app_cache_dir()
+                                .unwrap_or_else(|_| std::env::temp_dir());
+                            let staged = download::staging_path(&root, &name);
+                            app.state::<download::Downloads>().0.lock().unwrap().insert(
+                                url.to_string(),
+                                download::Staged {
+                                    path: staged.clone(),
+                                    name,
+                                },
+                            );
+                            *destination = staged;
                             true
                         }
                         DownloadEvent::Finished { url, path, success } => {
-                            let remembered = app
+                            let staged = app
                                 .state::<download::Downloads>()
                                 .0
                                 .lock()
                                 .unwrap()
                                 .remove(&url.to_string());
-                            let saved = path.or(remembered);
-                            let _ = app.emit(
-                                "download:finished",
-                                serde_json::json!({
-                                    "success": success,
-                                    "path": saved.as_ref().map(|p| p.to_string_lossy().to_string()),
-                                }),
-                            );
+                            let Some(staged) = staged else {
+                                return true;
+                            };
+                            let written = path.unwrap_or_else(|| staged.path.clone());
+                            if !success {
+                                let _ = std::fs::remove_file(&written);
+                                let _ = app.emit(
+                                    "download:finished",
+                                    serde_json::json!({ "success": false, "path": null }),
+                                );
+                                return true;
+                            }
+                            // The desktop's own Save dialog (the portal on Linux), starting in Downloads.
+                            let mut dialog = app.dialog().file().set_file_name(&staged.name);
+                            if let Ok(dir) = app.path().download_dir().or_else(|_| app.path().home_dir()) {
+                                dialog = dialog.set_directory(dir);
+                            }
+                            let app = app.clone();
+                            dialog.save_file(move |choice| {
+                                let outcome = match choice.and_then(|p| p.into_path().ok()) {
+                                    Some(dest) => match download::move_file(&written, &dest) {
+                                        Ok(()) => serde_json::json!({ "success": true, "path": dest.to_string_lossy() }),
+                                        Err(_) => serde_json::json!({ "success": false, "path": null }),
+                                    },
+                                    None => {
+                                        let _ = std::fs::remove_file(&written);
+                                        serde_json::json!({ "success": true, "cancelled": true, "path": null })
+                                    }
+                                };
+                                let _ = app.emit("download:finished", outcome);
+                            });
                             true
                         }
                         _ => true,

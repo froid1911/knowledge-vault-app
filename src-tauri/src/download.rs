@@ -1,14 +1,22 @@
-//! Downloads from the page (an original source file, a document's export): saved into the
-//! user's Downloads folder under the name the page suggested, never over an existing file,
-//! and reported back to the window so it can say where the file went.
+//! Downloads from the page (an original source file, a document's export): written to a
+//! staging folder first, then the desktop's Save dialog asks where the file goes (starting in
+//! Downloads, with the name the page suggested) and the file moves there; cancelling deletes it.
+//! The window is told where the file went.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// Destinations by download URL — macOS reports no path when a download finishes.
+/// A download in flight: where the webview writes it, and the name the page suggested.
+#[derive(Clone)]
+pub struct Staged {
+    pub path: PathBuf,
+    pub name: String,
+}
+
+/// Staged downloads by URL — macOS reports no path when a download finishes.
 #[derive(Default)]
-pub struct Downloads(pub Mutex<HashMap<String, PathBuf>>);
+pub struct Downloads(pub Mutex<HashMap<String, Staged>>);
 
 /// The file name to save under: the page's suggestion, else the URL's last segment, never a path.
 pub fn file_name_for(suggested: &Path, url: &url::Url) -> String {
@@ -58,9 +66,46 @@ pub fn unique_destination(dir: &Path, name: &str) -> PathBuf {
         .expect("an unused name")
 }
 
+/// Where the webview writes a download before the user picks its place: `root/downloads/`,
+/// under a name no other staged download uses.
+pub fn staging_path(root: &Path, name: &str) -> PathBuf {
+    let dir = root.join("downloads");
+    let _ = std::fs::create_dir_all(&dir);
+    unique_destination(&dir, name)
+}
+
+/// Moves a finished download to the chosen place: a rename, or a copy and delete when the
+/// destination is on another filesystem.
+pub fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(from, to)?;
+    std::fs::remove_file(from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stages_under_a_unique_name_then_moves_where_the_user_chose() {
+        let root = std::env::temp_dir().join(format!("kv-dl-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let staging = staging_path(&root, "report.pdf");
+        assert!(staging.starts_with(root.join("downloads")));
+        std::fs::write(&staging, b"%PDF").unwrap();
+        let chosen = root.join("chosen").join("my report.pdf");
+        std::fs::create_dir_all(chosen.parent().unwrap()).unwrap();
+        move_file(&staging, &chosen).unwrap();
+        assert_eq!(std::fs::read(&chosen).unwrap(), b"%PDF");
+        assert!(!staging.exists());
+        // A second staging of the same name never collides with a file still being saved.
+        let a = staging_path(&root, "x.pdf");
+        std::fs::write(&a, b"1").unwrap();
+        assert_ne!(staging_path(&root, "x.pdf"), a);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     fn u(s: &str) -> url::Url {
         url::Url::parse(s).unwrap()

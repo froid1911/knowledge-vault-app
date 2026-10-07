@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invokeIfTauri } from "../shell/tauri.js";
 
 /** The shell's `download:finished` event (src-tauri/src/lib.rs on_download). */
-export type DownloadFinished = { success: boolean; path: string | null };
+export type DownloadFinished = { success: boolean; path: string | null; cancelled?: boolean };
 export type DownloadEvents = (onEvent: (e: DownloadFinished) => void) => () => void;
 
 /** Under Tauri: the shell's events; in a browser downloads are the browser's own business. */
@@ -23,6 +23,7 @@ export const tauriDownloadEvents: DownloadEvents = (onEvent) => {
 };
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+const folderName = (path: string) => path.split(/[\\/]/).slice(0, -1).pop() || "/";
 
 /** A file the page downloaded landed in the Downloads folder: say where, and offer to show it. */
 export function DownloadNotice({
@@ -39,11 +40,11 @@ export function DownloadNotice({
     const t = setTimeout(() => setLast(null), 10_000);
     return () => clearTimeout(t);
   }, [last]);
-  if (!last) return null;
+  if (!last || last.cancelled) return null; // the user closed the Save dialog: nothing happened, nothing to say
   const ok = last.success && last.path;
   return (
     <div className="kv-download-notice" role={ok ? "status" : "alert"} data-ok={ok ? "true" : "false"}>
-      <span>{ok ? `Saved ${fileName(last.path!)} to your Downloads folder.` : "The download did not finish."}</span>
+      <span>{ok ? `Saved ${fileName(last.path!)} to ${folderName(last.path!)}.` : "The download did not finish."}</span>
       {ok && (
         <button type="button" className="kv-link-button" onClick={() => reveal(last.path!)}>
           Show
