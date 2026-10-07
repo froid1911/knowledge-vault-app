@@ -17,9 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+      # No Node/pnpm setup: install-command, build-command and package-dirs are
+      # all empty below, so this job only builds the Dockerfile. This repo uses
+      # bun (bun.lock) and has no pnpm-lock.yaml or packageManager field, so
+      # pnpm/action-setup fails with "No pnpm version is specified".
       - uses: powerhouse-inc/vetra-deploy-action@v1
         with:
           app-id: 8b3119b9-efa5-4d27-a9b3-d794b2d71b78
