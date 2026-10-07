@@ -7,6 +7,9 @@ import { fetchStatus } from "./vaults.js";
 import type { TokenProvider } from "./api/identity.js";
 import { Landing } from "./screens/Landing.js";
 import { watchSidecar, type SidecarInfo, type SidecarStatus, type StatusWatcher } from "./sidecar.js";
+import { invokeIfTauri, isTauri } from "./shell/tauri.js";
+
+import { goHomeIfAsked } from "./shell/go-home.js";
 
 export type LoadedApp = {
   App: ComponentType<{ info: SidecarInfo; client: GraphQLReactorClient; bearer?: TokenProvider }>;
@@ -71,6 +74,7 @@ export function Boot({
   onEngineRestarted?: () => void;
 }) {
   useThemeRoot();
+  useState(goHomeIfAsked); // once, before the first route is read
   useEffect(() => installExternalLinksForTauri(), []);
   const [status, setStatus] = useState<SidecarStatus>({ state: "starting" });
   const [app, setApp] = useState<LoadedApp | null>(null);
@@ -102,7 +106,9 @@ export function Boot({
 
   // The landing's frame — header, "Vaults", status strip — is on screen from the first paint;
   // the engine's state lives in the strip, so nothing jumps when the vaults arrive.
-  if (status.state === "exited" || status.state === "failed" || status.state === "restarting" || status.state === "gave_up" || status.state === "stopping") return <Landing engine={status} />;
+  if (status.state === "exited" || status.state === "failed" || status.state === "restarting" || status.state === "gave_up" || status.state === "stopping") {
+    return <Landing engine={status} onRetry={isTauri() ? () => void invokeIfTauri("retry_engine") : undefined} />;
+  }
   if (failure) return <EngineScreen kind="alert" title="The vault app could not load" detail={failure} />;
   if (status.state === "ready" && app) {
     const App = app.App;

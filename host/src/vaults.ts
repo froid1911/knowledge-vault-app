@@ -135,7 +135,7 @@ export async function validateModels(info: SidecarInfo, fetchImpl: typeof fetch 
 // ---- Plan 5: maintenance. Backups, restores and the delete-all run at the engine's next start (spec §9).
 export type BackupInfo = { name: string; path: string; bytes: number; stackVersion: string; createdAt: string };
 export type ActionResult = { action: "backup" | "restore" | "delete-all"; ok: boolean; detail: string; at: string };
-export type ExportResult = { path: string; documents: number; bytes: number };
+export type ExportResult = { path: string; documents: number; bytes: number; failed?: string[] };
 export async function fetchBackups(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<{ backups: BackupInfo[]; lastAction: ActionResult | null }> {
   return control(info, "/backups", { method: "GET" }, fetchImpl);
 }

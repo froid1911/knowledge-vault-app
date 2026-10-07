@@ -54,6 +54,15 @@ describe("Boot", () => {
     expect(screen.getByText("Restarting the engine…")).toBeTruthy();
   });
 
+  it("returns to the landing after a delete-all, even when the window reloaded before Settings saw the result", () => {
+    window.location.hash = "#/settings/vaults";
+    window.sessionStorage.setItem("kv.go-home", "1");
+    const w = fakeWatcher();
+    render(<Boot watch={w.watch} load={vi.fn()} />);
+    expect(window.location.hash).toBe("#/");
+    expect(window.sessionStorage.getItem("kv.go-home")).toBeNull();
+  });
+
   it("reports a vault app that failed to load", async () => {
     const w = fakeWatcher();
     render(<Boot watch={w.watch} load={vi.fn(async () => { throw new Error("chunk missing"); })} />);

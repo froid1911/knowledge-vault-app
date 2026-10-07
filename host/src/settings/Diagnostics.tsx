@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "../screens/Settings.js";
 import type { SidecarInfo } from "../sidecar.js";
 import type { EngineStatus } from "../vaults.js";
+import { redact } from "../redact.js";
 import { invokeIfTauri, isTauri } from "../shell/tauri.js";
 
 function CopyBlock({ label, value }: { label: string; value: string }) {
@@ -25,11 +26,6 @@ function CopyBlock({ label, value }: { label: string; value: string }) {
 }
 
 /** The engineering view: what runs where, and how to point the CLI, the plugin and agents at this engine. */
-/** Anything after a credential-looking word goes; the copy is meant for an issue or a chat. */
-export function redact(line: string): string {
-  return line.replace(/(token|secret|key|authorization|bearer|sk-)[^\n]*/gi, "$1 […]").replace(/\bsk-[^\s]*/gi, "[…]");
-}
-
 /** What "Copy diagnostics" puts on the clipboard: versions, ports, the data folder and the redacted tail — never a credential. */
 export function diagnosticsText(status: EngineStatus, tail: string[]): string {
   return JSON.stringify(
@@ -40,8 +36,8 @@ export function diagnosticsText(status: EngineStatus, tail: string[]): string {
       enginePort: status.port,
       controlPort: status.controlPort,
       protected: status.protected,
-      dataDir: status.dataDir,
-      lastLines: tail.map(redact),
+      dataDir: redact(status.dataDir),
+      lastLines: tail.map((l) => redact(l)),
     },
     null,
     2,
@@ -91,7 +87,7 @@ export function DiagnosticsSection({ info, api }: { info: SidecarInfo; api: Sett
           {tail.length === 0 ? (
             <p className="kv-quiet">Nothing logged yet — the app records the engine's output when it runs it.</p>
           ) : (
-            <pre className="kv-log-tail" aria-label="The engine's last lines">{tail.map(redact).join("\n")}</pre>
+            <pre className="kv-log-tail" aria-label="The engine's last lines">{tail.map((l) => redact(l)).join("\n")}</pre>
           )}
           <div className="kv-form-actions">
             <button type="button" className="kv-button" onClick={() => void copyDiagnostics()}>{copied ? "Copied" : "Copy diagnostics"}</button>

@@ -136,7 +136,7 @@ export function VaultsSection({
     setExporting(v.id);
     try {
       const r = await api.exportVault(info, v.id);
-      setExported((prev) => ({ ...prev, [v.id]: r.path }));
+      setExported((prev) => ({ ...prev, [v.id]: r.failed?.length ? `${r.path} (${r.failed.length} document${r.failed.length === 1 ? "" : "s"} could not be read)` : r.path }));
     } catch (e) {
       setExported((prev) => ({ ...prev, [v.id]: `Export failed: ${e instanceof Error ? e.message : String(e)}` }));
     } finally {

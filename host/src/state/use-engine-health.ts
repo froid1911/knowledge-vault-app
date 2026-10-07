@@ -20,7 +20,12 @@ export function useEngineHealth(
     let alive = true;
     let failures = 0;
     const handle = setInterval(() => {
-      api.fetchStatus(info).then(
+      // A read that never answers (a hung engine) is a failure too: give it most of an interval.
+      const answer = Promise.race([
+        api.fetchStatus(info),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), Math.min(4000, pollMs * 0.9))),
+      ]);
+      answer.then(
         () => {
           failures = 0;
           if (alive) setHealth("ok");

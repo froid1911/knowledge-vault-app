@@ -1,3 +1,4 @@
+import { redact } from "../redact.js";
 import type { FatalInfo } from "../sidecar.js";
 
 export type EngineState =
@@ -21,7 +22,7 @@ function copy(engine: EngineState): { label: string; detail: string } {
     case "gave_up":
       return {
         label: "The engine keeps stopping",
-        detail: engine.fatal ? engine.fatal.message : "It stopped several times in a row. Its last lines are below; restart the app once the cause is fixed.",
+        detail: engine.fatal ? engine.fatal.message : "It stopped several times in a row. Its last lines are below. Try again, or quit from the tray and start the app again.",
       };
     case "exited":
       return engine.fatal
@@ -37,7 +38,7 @@ function copy(engine: EngineState): { label: string; detail: string } {
 const TROUBLE = new Set<EngineState["state"]>(["exited", "failed", "gave_up"]);
 
 /** The landing's bottom landmark: the engine's state, the privacy sentence, the version. */
-export function StatusStrip({ engine, version }: { engine: EngineState; version?: string }) {
+export function StatusStrip({ engine, version, onRetry }: { engine: EngineState; version?: string; /** The shell's "start the engine again" (absent in a browser). */ onRetry?: () => void }) {
   const trouble = TROUBLE.has(engine.state);
   const { label, detail } = copy(engine);
   const tail = engine.state === "gave_up" ? engine.logTail : [];
@@ -47,6 +48,9 @@ export function StatusStrip({ engine, version }: { engine: EngineState; version?
         <span className="kv-dot" aria-hidden="true" />
         <span className="kv-strip-state">{label}</span>
         {detail && <span className="kv-strip-detail">{detail}</span>}
+        {onRetry && (engine.state === "gave_up" || engine.state === "exited") && (
+          <button type="button" className="kv-button" onClick={onRetry}>Try again</button>
+        )}
         {!trouble && (
           <span className="kv-strip-privacy">
             Everything stays on this computer unless you connect a remote vault, a model provider or a converter.
@@ -57,7 +61,7 @@ export function StatusStrip({ engine, version }: { engine: EngineState; version?
       {tail.length > 0 && (
         <pre className="kv-strip-tail" aria-label="The engine's last lines">
           {tail.map((line, i) => (
-            <span key={i}>{line}{"\n"}</span>
+            <span key={i}>{redact(line)}{"\n"}</span>
           ))}
         </pre>
       )}

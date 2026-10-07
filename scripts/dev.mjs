@@ -61,6 +61,8 @@ function openLog(first) {
  * Spawn the engine with the protection section of its config.json (what the shell does in
  * production: sidecar.rs reads the same section). Resolves with the readiness line.
  */
+/** The engine has been ready once this session: from then on every exit is supervised. */
+let everReady = false;
 async function startSidecar(attempt = 0) {
   let configText;
   try {
@@ -81,6 +83,10 @@ async function startSidecar(attempt = 0) {
     process.stderr.write(chunk);
     logStream.write(chunk);
   });
+  // Supervised from the moment it is spawned (review I5): a respawned engine that crashes while
+  // starting, or refuses to start, is handled like one that crashes later. Only the very first
+  // start of a dev session is left to fail the loop at once (its rejection reaches the top level).
+  child.on("exit", (code) => onEngineExit(code));
   const ready = await new Promise((resolve, reject) => {
     const rl = createInterface({ input: child.stdout });
     rl.on("line", (line) => {
@@ -107,9 +113,9 @@ async function startSidecar(attempt = 0) {
     });
     child.on("exit", (code) => reject(new Error(`sidecar exited before ready (${code})${fatal ? `: ${fatal.message}` : ""}`)));
   });
-  child.on("exit", (code) => {
+  function onEngineExit(code) {
     logStream.write(`--- exited code ${code} ${new Date().toISOString()}\n`);
-    if (stopping) return;
+    if (stopping || !everReady) return;
     if (restartRequested) {
       console.log("[dev] restarting the engine…");
       startSidecar().catch((error) => console.error(`[dev] ${error.message}`));
@@ -134,7 +140,8 @@ async function startSidecar(attempt = 0) {
     }
     console.error(`[dev] the engine crashed (code ${code}); restarting in ${delay / 1000} s (attempt ${n})`);
     setTimeout(() => startSidecar(n).catch((error) => console.error(`[dev] ${error.message}`)), delay);
-  });
+  }
+  everReady = true;
   console.log(`[dev] sidecar ready on ${ready.port} (control ${ready.controlPort})${protection.KV_PROTECTED ? ` — protected, administrator ${protection.KV_ADMIN_ADDRESS}` : " — open"}`);
   return ready;
 }

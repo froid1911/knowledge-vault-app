@@ -58,6 +58,8 @@ type AnyVault = ({ kind: "local" } & VaultSummary) | RemoteVault;
 
 type Props = {
   engine: EngineState;
+  /** "Try again" after the engine kept stopping or refused to start (the shell's retry_engine). */
+  onRetry?: () => void;
   /** Present once the engine is ready; the landing lists and creates vaults only then. */
   info?: SidecarInfo;
   identity?: IdentityStatus | null;
@@ -80,7 +82,7 @@ type Props = {
  * recently opened one largest; on first run, the inline create form; the
  * engine's state in a strip at the bottom. Never a workspace.
  */
-export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdentity, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage, localBearer }: Props) {
+export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdentity, onWorkflows, onSettings, newVault = false, onNewVaultDone, api = realLandingApi, storage, localBearer, onRetry }: Props) {
   const store = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const [vaults, setVaults] = useState<VaultSummary[] | null>(null);
   const [remotes, setRemotes] = useState<RemoteVault[] | null>(null);
@@ -325,7 +327,7 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
           </ul>
         )}
       </main>
-      <StatusStrip engine={engine} version={version} />
+      <StatusStrip engine={engine} version={version} onRetry={onRetry} />
       {renaming && <RenameVaultDialog name={renaming.name} busy={busy} error={dialogError} onSave={(n) => void rename(renaming, n)} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteVaultDialog name={deleting.name} noteCount={samples[deleting.id]?.noteCount ?? deleting.noteCount} busy={busy} error={dialogError} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
       {removing && (

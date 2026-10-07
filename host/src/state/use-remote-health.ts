@@ -14,7 +14,7 @@ export function useRemoteHealth(origin: string, pollMs = 15_000, fetchImpl: type
     let alive = true;
     let failures = 0;
     const handle = setInterval(() => {
-      fetchImpl(`${origin}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ __typename }" }) }).then(
+      fetchImpl(`${origin}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ __typename }" }), signal: AbortSignal.timeout(Math.min(10_000, pollMs * 0.9)) }).then(
         () => {
           failures = 0;
           if (alive) setReach("online");

@@ -109,6 +109,15 @@ describe("Landing", () => {
     expect(a.fetchVaults).not.toHaveBeenCalled();
   });
 
+  it("offers Try again when the engine keeps stopping, and shows its last lines without credentials", () => {
+    const onRetry = vi.fn();
+    render(<Landing engine={{ state: "gave_up", code: 1, logTail: ["Authorization: Bearer abc.def", "boom"], fatal: null }} api={api()} storage={memoryStorage()} onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalled();
+    expect(screen.queryByText(/abc\.def/)).toBeNull();
+    expect(screen.getByText("boom")).toBeTruthy();
+  });
+
   it("renames a vault from its ⋯ menu and deletes one only after its name is typed", async () => {
     const a = api({ fetchVaults: vi.fn(async () => [{ id: "v1", slug: "a", name: "Alpha", noteCount: 3 }, { id: "v2", slug: "b", name: "Beta", noteCount: 0 }]) });
     render(<Landing engine={{ state: "ready" }} info={info} api={a} storage={memoryStorage()} />);

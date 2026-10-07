@@ -3,6 +3,7 @@ import type { SettingsApi } from "../screens/Settings.js";
 import { Dialog } from "../shell/Dialog.js";
 import type { SidecarInfo } from "../sidecar.js";
 import type { ActionResult, BackupInfo } from "../vaults.js";
+import { requestGoHome } from "../shell/go-home.js";
 
 const RESTART_GRACE_MS = 120_000;
 
@@ -80,8 +81,12 @@ function useScheduled(info: SidecarInfo, api: SettingsApi, pollMs: number, onRes
   async function schedule(action: ActionResult["action"], run: () => Promise<unknown>) {
     setError(null);
     try {
+      // The result to wait past is the one recorded now — not whatever the first read happened to see.
+      const before = await api.fetchBackups(info).catch(() => null);
+      const since = before?.lastAction?.at ?? last?.at ?? null;
+      if (action === "delete-all") requestGoHome();
       await run();
-      setWaiting({ action, since: last?.at ?? null, startedAt: Date.now() });
+      setWaiting({ action, since, startedAt: Date.now() });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -99,7 +104,7 @@ export function MaintenanceCards({ info, api, pollMs, onRestarted }: { info: Sid
     <>
       <section className="kv-identity-card" aria-labelledby="kv-backups-title">
         <h2 id="kv-backups-title" className="kv-settings-subtitle">Backups</h2>
-        <p className="kv-settings-lead">A backup copies every local vault, its records and settings — never your keys — into the data folder. The engine restarts to make it; the app updates by itself. One is also made before an upgrade opens your store.</p>
+        <p className="kv-settings-lead">A backup copies every local vault, its records and settings — never your keys — into the data folder. The engine restarts to make it; the app updates by itself. One is also made before an upgrade opens your store. The newest ten are kept.</p>
         <div className="kv-form-actions">
           <button type="button" className="kv-button" disabled={busy} onClick={() => void schedule("backup", () => api.requestBackup(info))}>Back up now</button>
         </div>
@@ -126,7 +131,7 @@ export function MaintenanceCards({ info, api, pollMs, onRestarted }: { info: Sid
 
       <section className="kv-identity-card" aria-labelledby="kv-delete-all-title">
         <h2 id="kv-delete-all-title" className="kv-settings-subtitle">Delete all local data</h2>
-        <p className="kv-settings-lead">Removes every local vault, the settings, your sign-in and the downloaded converter. The app returns to its first run. Remote vaults are not touched.</p>
+        <p className="kv-settings-lead">Removes every local vault, the settings, your sign-in, exports and the downloaded converter. The app returns to its first run. Remote vaults are not touched.</p>
         <label htmlFor="kv-delete-all-confirm">Type delete to confirm</label>
         <input id="kv-delete-all-confirm" className="kv-input" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" disabled={busy} />
         <label className="kv-check">
@@ -148,7 +153,7 @@ export function MaintenanceCards({ info, api, pollMs, onRestarted }: { info: Sid
         <Dialog open title="Restore this backup?" onClose={() => setRestoring(null)} kind="danger">
           <div className="kv-dialog-form">
             <p>
-              Your local vaults go back to <span className="kv-mono">{restoring.name}</span>. What is there now is kept as a backup of its own, so this can be undone. The engine restarts.
+              Your local vaults go back to <span className="kv-mono">{restoring.name}</span>. Settings, your sign-in and remote vaults stay as they are. What is there now is kept as a backup of its own, so this can be undone. The engine restarts.
             </p>
             <div className="kv-dialog-actions">
               <button type="button" className="kv-button" onClick={() => setRestoring(null)}>Cancel</button>

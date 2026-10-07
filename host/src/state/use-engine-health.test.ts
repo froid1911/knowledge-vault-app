@@ -33,4 +33,11 @@ describe("useEngineHealth", () => {
     expect(result.current).toBe("ok");
     expect(fetchStatus).not.toHaveBeenCalled();
   });
+  it("counts a status read that never answers as a failure", async () => {
+    vi.useFakeTimers();
+    const fetchStatus = vi.fn(() => new Promise<never>(() => {}));
+    const { result } = renderHook(() => useEngineHealth(info, 1000, { fetchStatus }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3500); });
+    expect(result.current).toBe("degraded");
+  });
 });
