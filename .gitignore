@@ -34,3 +34,4 @@ playwright-report/
 # Plan 6: build artefacts
 .stage/
 src-tauri/binaries/
+dist-linux/
