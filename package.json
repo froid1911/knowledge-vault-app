@@ -17,7 +17,6 @@
     "test": "vitest run",
     "stack:check": "node scripts/check-stack-versions.mjs",
     "e2e": "playwright test",
-    "sync:vault": "rm -rf node_modules/@powerhousedao/knowledge-note host/node_modules/.vite && bun install",
     "sync:converter": "node scripts/sync-converter.mjs",
     "converter:check": "node scripts/sync-converter.mjs --check"
   },

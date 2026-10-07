@@ -1,0 +1,5 @@
+# @powerhousedao/knowledge-note is published to the Powerhouse registry, which
+# also proxies the rest of the scope (the 6.2.3-dev.* stack), so the whole
+# scope resolves there. Everything else comes from npmjs.
+[install.scopes]
+"@powerhousedao" = { url = "https://registry.vetra.io" }

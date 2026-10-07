@@ -8,7 +8,18 @@ Design: `docs/superpowers/specs/2026-10-06-desktop-knowledge-vault-design.md`. P
 - `bun run dev` — sidecar on 4201, host on 4200, Tauri window (`--no-shell` for browser-only)
 - `bun run test`, `bun run tsc`, `bun run stack:check`
 
-Requires the vault package checked out at `../bai-knowledge-note` and built there (`bun run build`).
+### The vault package
+
+The app consumes the **published** `@powerhousedao/knowledge-note` (pinned in `host/package.json` and
+`sidecar/package.json`, resolved from the Powerhouse registry — `bunfig.toml` / `.npmrc` route the `@powerhousedao`
+scope to `https://registry.vetra.io`, which also proxies the stack). Upgrading the vault app is a version bump plus
+`bun install`.
+
+To iterate on the vault package itself, point both dependencies at your checkout for the session —
+`"@powerhousedao/knowledge-note": "file:../../bai-knowledge-note"` — run `bun install`, and after each rebuild there
+clear Vite's dependency cache (`rm -rf host/node_modules/.vite`; Vite pre-bundles the package and would otherwise keep
+serving the old build). Switch back to the published version before committing: CI and release builds need a
+version, not a path.
 
 ### Demo data
 
@@ -27,7 +38,3 @@ in, **Connect remote vault** on the landing takes a Switchboard URL (`https://ho
 or `https://host/<slug>`) and a drive id or slug, checks what you may do there, and adds the vault; it opens in client
 mode, talking to that server as you.
 
-### After rebuilding the vault package
-
-`bun run sync:vault` copies the rebuilt `@powerhousedao/knowledge-note` in and clears Vite's dependency cache
-(`host/node_modules/.vite`) — Vite pre-bundles the package and would otherwise keep serving the old build.
