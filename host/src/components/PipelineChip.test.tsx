@@ -29,7 +29,20 @@ describe("PipelineChip", () => {
     await waitFor(() => expect(screen.getByText("Last processing run failed")).toBeTruthy());
     expect(screen.getByTitle(/no model here/)).toBeTruthy(); // the run's error is the chip's tooltip
     fireEvent.click(screen.getByRole("button", { name: "See runs" }));
-    expect(onRuns).toHaveBeenCalled();
+    expect(onRuns).toHaveBeenCalledWith("wf");
     expect(fetchPipeline.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("while processing, the label itself opens the vault's pipeline in Workflow Studio", async () => {
+    const onRuns = vi.fn();
+    const running: PipelineStatus = { state: "ready", workflowId: "wf-7", connectionId: "c", trigger: { status: "ENABLED", lastPollAt: null, lastError: null }, lastRun: { id: "r", status: "RUNNING", startedAt: null, endedAt: null, error: null } };
+    render(<PipelineChip info={info} vaultId="v1" api={{ fetchPipeline: vi.fn(async () => running), setupPipeline: vi.fn() }} onModels={() => {}} onRuns={onRuns} pollMs={60_000} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Processing… — open in Workflow Studio" }));
+    expect(onRuns).toHaveBeenCalledWith("wf-7");
+  });
+  it("a state with no pipeline yet has no link", async () => {
+    render(<PipelineChip info={info} vaultId="v1" api={{ fetchPipeline: vi.fn(async (): Promise<PipelineStatus> => ({ state: "missing" })), setupPipeline: vi.fn() }} onModels={() => {}} onRuns={() => {}} pollMs={60_000} />);
+    expect(await screen.findByText("Processing not set up")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /open in Workflow Studio/ })).toBeNull();
   });
 });

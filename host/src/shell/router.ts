@@ -10,12 +10,15 @@ export type Route =
   | { name: "vaults"; newVault?: boolean }
   | { name: "vault"; id: string }
   | { name: "remote"; id: string }
-  | { name: "workflows" }
+  /** Workflow Studio; `workflow` opens one workflow's live view (Studio keeps its selection in the fragment as `#<id>`). */
+  | { name: "workflows"; workflow?: string }
   | { name: "settings"; section: SettingsSection };
 
 export function parseRoute(hash: string): Route {
   const raw = hash.replace(/^#/, "");
   const [pathPart = "", query = ""] = raw.split("?");
+  // Workflow Studio's own fragment: a bare document id selects that workflow (so a reload keeps it).
+  if (pathPart && !pathPart.startsWith("/") && /^[A-Za-z0-9_-]+$/.test(pathPart)) return { name: "workflows", workflow: pathPart };
   const segments = pathPart.split("/").filter(Boolean);
   if (segments.length === 0) return new URLSearchParams(query).get("new") === "1" ? { name: "vaults", newVault: true } : { name: "vaults" };
   if (segments[0] === "vault" && segments[1]) return { name: "vault", id: decodeURIComponent(segments[1]) };
@@ -37,7 +40,7 @@ export function routeHash(route: Route): string {
     case "remote":
       return `#/remote/${encodeURIComponent(route.id)}`;
     case "workflows":
-      return "#/workflows";
+      return route.workflow ? `#${route.workflow}` : "#/workflows";
     case "settings":
       return `#/settings/${route.section}`;
   }

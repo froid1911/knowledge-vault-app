@@ -33,7 +33,7 @@ export function WorkspaceScreen(props: {
   onBack: () => void;
   onSettings?: () => void;
   /** A local vault's pipeline chip (spec §4.5): where to send the user for a model, and for the runs. */
-  pipeline?: { info: SidecarInfo; onModels: () => void; onRuns: () => void };
+  pipeline?: { info: SidecarInfo; onModels: () => void; onRuns: (workflowId?: string) => void };
   /** The local engine, for apps whose documents it can fill in (Studio's Knowledge Vault connections). */
   engine?: SidecarInfo;
 }) {
