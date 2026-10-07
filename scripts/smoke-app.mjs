@@ -13,14 +13,17 @@ const newest = (dir, ext) => {
   const files = readdirSync(dir).filter((f) => f.endsWith(ext)).map((f) => join(dir, f));
   return files.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 };
-const appImage = process.argv[2] ?? newest(join(bundle, "appimage"), ".AppImage");
-if (!appImage) {
-  console.error("[smoke] no AppImage found — run `bun run build:app` first");
+// Linux: the AppImage. macOS: the executable inside the .app bundle.
+const macApp = process.platform === "darwin" ? newest(join(bundle, "macos"), ".app") : undefined;
+const appImage = process.argv[2] ?? (macApp ? join(macApp, "Contents", "MacOS", "desktop-knowledge-vault") : newest(join(bundle, "appimage"), ".AppImage"));
+if (!appImage || !existsSync(appImage)) {
+  console.error("[smoke] no built app found — run `bun run build:app` first");
   process.exit(1);
 }
 const mb = (p) => (statSync(p).size / 1e6).toFixed(0);
+const installer = macApp ? newest(join(bundle, "dmg"), ".dmg") : appImage;
 const deb = newest(join(bundle, "deb"), ".deb");
-console.log(`[smoke] ${appImage.split("/").pop()}: ${mb(appImage)} MB${deb ? `; ${deb.split("/").pop()}: ${mb(deb)} MB` : ""}`);
+if (installer) console.log(`[smoke] ${installer.split("/").pop()}: ${mb(installer)} MB${deb ? `; ${deb.split("/").pop()}: ${mb(deb)} MB` : ""}`);
 
 const home = mkdtempSync(join(tmpdir(), "kv-smoke-"));
 const env = {
@@ -52,6 +55,7 @@ const tree = (pid) => {
   return [pid, ...kids.flatMap(tree)];
 };
 const sampler = setInterval(() => {
+  if (process.platform !== "linux") return; // /proc only
   let kb = 0;
   for (const p of tree(child.pid)) {
     try {
@@ -66,8 +70,9 @@ child.on("exit", (code) => {
   clearTimeout(killer);
   const verdict = /\[smoke\] (ok|failed)[^\n]*/.exec(out)?.[0];
   console.log(verdict ?? "[smoke] no verdict from the app");
-  console.log(`[smoke] exit ${code} after ${((Date.now() - started) / 1000).toFixed(1)} s; peak memory ${(peak / 1024).toFixed(0)} MB`);
-  const store = join(env.XDG_DATA_HOME, "xyz.powerhouse.desktop-knowledge-vault", "vault");
+  if (!verdict && Date.now() - started < 10_000) console.log("[smoke] it exited at once — if Knowledge Vault (or `bun run dev`'s window) is already open, the new launch handed over to it (one instance at a time): close it and run again");
+  console.log(`[smoke] exit ${code} after ${((Date.now() - started) / 1000).toFixed(1)} s${process.platform === "linux" ? `; peak memory ${(peak / 1024).toFixed(0)} MB` : ""}`);
+  const store = process.platform === "darwin" ? join(home, "Library", "Application Support", "xyz.powerhouse.desktop-knowledge-vault", "vault") : join(env.XDG_DATA_HOME, "xyz.powerhouse.desktop-knowledge-vault", "vault");
   console.log(`[smoke] engine store created: ${existsSync(join(store, "reactor"))}`);
   if (code !== 0) console.log(out.split("\n").slice(-30).join("\n"));
   rmSync(home, { recursive: true, force: true });

@@ -7,16 +7,19 @@ Design: `docs/superpowers/specs/2026-10-06-desktop-knowledge-vault-design.md`. P
 
 Releases are built by merging `dev` into `main` (GitHub Release, marked prerelease until the builds are signed).
 
-- **Linux** — `Knowledge Vault_<version>_amd64.AppImage`: `chmod +x` it and open it (no install needed), or
-  `sudo apt install ./Knowledge\ Vault_<version>_amd64.deb`. Needs **glibc 2.34+** (Ubuntu 22.04, Debian 12, Fedora,
-  RHEL 9, current Arch and newer) and a desktop's usual libraries — GTK 3 and OpenGL, present on any GNOME, KDE or
-  similar desktop; WebKit and Node come inside the AppImage. Verified on a clean Ubuntu 22.04 with only `libgtk-3-0`
-  and the GL libraries installed, and on Arch (Omarchy).
-- **macOS** (Apple silicon and Intel) — open the `.dmg` and drag the app to Applications. The builds are **not
-  signed** yet: the first time, right-click the app → **Open**, then confirm.
+- **Linux** — `Knowledge.Vault_<version>_amd64.AppImage`: `chmod +x` it and open it (nothing is installed), or
+  `sudo apt install ./Knowledge.Vault_<version>_amd64.deb` (it installs `/usr/bin/desktop-knowledge-vault`, the app's
+  own Node as `/usr/bin/kv-node`, and the engine under `/usr/lib/Knowledge Vault/`; it never touches a system
+  `node`). Needs **glibc 2.34+** (Ubuntu 22.04, Debian 12, Fedora, RHEL 9, current Arch and newer) and a desktop's
+  usual libraries — GTK 3 and OpenGL, present on any GNOME, KDE or similar desktop; WebKit and Node come with the
+  app. Verified on a clean Ubuntu 22.04 with only `libgtk-3-0` and the GL libraries installed, and on Arch (Omarchy).
+- **macOS 13.5 or later** (the bundled Node's minimum), Apple silicon and Intel — **untested until the first
+  release build runs on GitHub's macOS runners.** Open the `.dmg` and drag the app to Applications. The builds are
+  ad-hoc signed, not notarised: the first time, open the app, then **System Settings › Privacy & Security › Open
+  Anyway** (macOS 15 removed the older right-click → Open bypass).
 
 The app brings everything it needs: its own Node (24 LTS), the engine (a Powerhouse Switchboard with the vault
-package) and the window. Nothing is installed system-wide.
+package) and the window.
 
 **Where your data lives:** `~/.local/share/xyz.powerhouse.desktop-knowledge-vault/vault/` on Linux,
 `~/Library/Application Support/xyz.powerhouse.desktop-knowledge-vault/vault/` on macOS — the vaults (`reactor/`,
