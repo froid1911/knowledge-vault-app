@@ -4,7 +4,7 @@
 |---|---|---|
 | `2026-10-06-phase0-foundation.md` | 0 — foundation: package host mode, sidecar, host, dev loop, Tauri dev shell, e2e gate | full TDD steps |
 | `2026-10-06-phase1-lite-launcher-settings-workflows.md` | 1-lite — launcher polish, vault rename/delete, Settings view, Workflow Studio full-view (pulled forward) | task outline, executed natively |
-| `2026-10-06-phase1-vaults-identity.md` | 1 — sign-in, protection switch, identity in Settings (the landing and Settings shell exist since 1-lite) | full TDD steps |
+| `2026-10-06-phase1-vaults-identity.md` | 1 — sign-in, protection switch, identity in Settings (the landing and Settings shell exist since 1-lite) | done 2026-10-07 (Tasks 1, 2, 4, 5 landed through Plans 1-lite/4; Task 3 + 6 and the review's fixes here; ledger in `ledgers/`) |
 | `2026-10-06-phase2-pipeline.md` | 2 — pipeline template, models, Workflow Studio | full TDD steps |
 | `2026-10-06-phase3-remote-vaults.md` | 3 — remote vaults in client mode, host-provided bearer | outline (expand before execution) |
 | `2026-10-06-phase4-conversion.md` | 4 — conversion without Docker: the docling service as the in-app helper; Stage A (no-binding mode, open-mode guard, runtime URL, helper, Settings) and Stage B (binding and models installable from Settings) landed | done; darwin binding in Plan 6 |
