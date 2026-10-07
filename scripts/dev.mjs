@@ -14,6 +14,8 @@ const dataDirIndex = process.argv.indexOf("--data-dir");
 const dataDir = resolve(dataDirIndex >= 0 && process.argv[dataDirIndex + 1] ? process.argv[dataDirIndex + 1] : ".dev-data");
 const TOKEN = "dev-token";
 const children = [];
+/** The Tauri shell's process group (it runs detached so the group can be signalled). */
+let shellGroup;
 const run = (cmd, args, opts = {}) => {
   const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "inherit"], ...opts });
   children.push(child);
@@ -144,9 +146,13 @@ const vite = run("bun", ["run", "--cwd", "host", "dev"], {
 vite.stdout.pipe(process.stdout);
 if (!noShell) {
   await new Promise((r) => setTimeout(r, 1500));
+  // Its own process group: `tauri dev` runs the app under cargo, and signalling only the bunx
+  // wrapper leaves the window behind (re-parented to init). The group is signalled as a whole.
   const shell = run("bunx", ["@tauri-apps/cli", "dev"], {
     env: { ...process.env, KV_DEV_SIDECAR_PORT: String(ready.port), KV_DEV_CONTROL_PORT: String(ready.controlPort), KV_DEV_CONTROL_TOKEN: TOKEN, KV_DEV_DATA_DIR: dataDir },
+    detached: true,
   });
+  shellGroup = shell.pid;
   shell.stdout.pipe(process.stdout);
 }
 
@@ -154,7 +160,14 @@ async function shutdown(exitCode = 0) {
   if (stopping) return;
   stopping = true;
   console.log("\n[dev] stopping…");
-  for (const c of children) if (c !== sidecar) c.kill("SIGINT");
+  if (shellGroup) {
+    try {
+      process.kill(-shellGroup, "SIGINT"); // the whole group: bunx, the Tauri CLI, cargo and the app
+    } catch {
+      // already gone
+    }
+  }
+  for (const c of children) if (c !== sidecar && c.pid !== shellGroup) c.kill("SIGINT");
   if (sidecar.exitCode === null) {
     sidecar.stdin.on("error", () => {}); // EPIPE if it exits between the check and the write
     sidecar.stdin.end(); // the sidecar treats stdin EOF as a graceful-stop request
