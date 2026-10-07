@@ -22,6 +22,20 @@ export class SettingsError extends Error {}
 
 const DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1";
 
+/**
+ * People paste what their provider shows — often the chat-completions URL.
+ * The piece and the chat want the API root: drop `/chat/completions`,
+ * `/completions` or `/models`, the query, the hash and trailing slashes; a
+ * server mounted at its root stays as given.
+ */
+export function normalizeEndpoint(raw: string): string {
+  const url = new URL(raw.trim());
+  url.search = "";
+  url.hash = "";
+  url.pathname = url.pathname.replace(/\/(chat\/completions|completions|models)\/?$/, "").replace(/\/+$/, "");
+  return url.toString().replace(/\/$/, "");
+}
+
 function configPath(dataDir: string): string {
   return join(dataDir, "config.json");
 }
@@ -82,7 +96,7 @@ export function writeSettings(dataDir: string, patch: SettingsPatch): AppSetting
     if (typeof patch.models.endpoint === "string") {
       const endpoint = patch.models.endpoint.trim() || DEFAULT_ENDPOINT;
       if (!/^https?:\/\//.test(endpoint)) throw new SettingsError("The model endpoint must be an http(s) URL.");
-      models.endpoint = endpoint;
+      models.endpoint = normalizeEndpoint(endpoint);
     }
     if (typeof patch.models.model === "string") models.model = patch.models.model.trim();
     if (patch.models.apiKey !== undefined) {

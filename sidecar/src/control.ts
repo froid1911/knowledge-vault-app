@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
+import type { EnsureResult, PipelineStatus } from "./pipelines.js";
 import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch, type LocalProtection } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 
@@ -30,6 +31,12 @@ export type ControlDeps = {
   workflowsDrive: () => Promise<DriveRef>;
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
+  /** Spec §4.5: each vault's pipeline (template instantiation, status, removal). */
+  pipelines: {
+    ensure: (vaultId: string) => Promise<EnsureResult>;
+    status: (vaultId: string) => Promise<PipelineStatus>;
+    remove: (vaultId: string) => Promise<void>;
+  };
   /** Spec §4.4: the protection switch. `set` writes config.json's `local` section and schedules the engine's restart. */
   protection: {
     get: () => LocalProtection;
@@ -150,8 +157,23 @@ export function createControlServer(deps: ControlDeps) {
         const body = await readJson(req);
         const name = typeof body.name === "string" ? body.name.trim() : "";
         if (!name) return send(res, 400, { error: "A vault needs a name." }, allowed);
-        return send(res, 201, { vault: await deps.createVault(name) }, allowed);
+        const vault = await deps.createVault(name);
+        // The vault exists whatever happens to its pipeline; a failed instantiation is reported, not fatal.
+        let pipeline: EnsureResult | { state: "failed"; error: string };
+        try {
+          pipeline = await deps.pipelines.ensure(vault.id);
+        } catch (error) {
+          pipeline = { state: "failed", error: error instanceof Error ? error.message : String(error) };
+        }
+        return send(res, 201, { vault, pipeline }, allowed);
       }
+      const pipelineOf = url.pathname.match(/^\/vaults\/([^/]+)\/pipeline$/);
+      if (pipelineOf && req.method === "POST") {
+        const result = await deps.pipelines.ensure(decodeURIComponent(pipelineOf[1]!));
+        if (result.state === "unconfigured") return send(res, 409, { error: "Set up a model first — Settings › Models." }, allowed);
+        return send(res, 200, { pipeline: result }, allowed);
+      }
+      if (pipelineOf && req.method === "GET") return send(res, 200, { pipeline: await deps.pipelines.status(decodeURIComponent(pipelineOf[1]!)) }, allowed);
       const vault = url.pathname.match(/^\/vaults\/([^/]+)$/);
       if (vault && req.method === "PATCH") {
         const body = await readJson(req);
@@ -161,6 +183,7 @@ export function createControlServer(deps: ControlDeps) {
       }
       if (vault && req.method === "DELETE") {
         const id = decodeURIComponent(vault[1]!);
+        await deps.pipelines.remove(id).catch(() => undefined); // its workflow, connection and secrets go with it
         await deps.deleteVault(id);
         return send(res, 200, { deleted: id }, allowed);
       }

@@ -14,7 +14,10 @@ import { switchboardOptions } from "./options.js";
 import { readyLine, restartLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
 import { singleFlight } from "./single-flight.js";
-import { readSettings, writeSettings } from "./settings.js";
+import { readModelKey, readSettings, writeSettings } from "./settings.js";
+import { createPipelineManager } from "./pipelines.js";
+import type { PipelineTemplate } from "./templates.js";
+import { createRequire } from "node:module";
 import { createProtectionSwitch } from "./protection.js";
 import { authorizedFetch, createEngineTokenProvider } from "./authorized-fetch.js";
 import { ensureKyselyMigrationTables } from "./auth-tables.js";
@@ -40,6 +43,14 @@ function packageVersion(dir: string): string {
     return (JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { version?: string }).version ?? "unknown";
   } catch {
     return "unknown";
+  }
+}
+/** The pipeline template the vault package ships (spec §7.5); a package that predates it yields none. */
+function loadPipelineTemplate(): PipelineTemplate | undefined {
+  try {
+    return createRequire(import.meta.url)("@powerhousedao/knowledge-note/pieces/knowledge-vault/templates/pipeline.json") as PipelineTemplate;
+  } catch {
+    return undefined;
   }
 }
 const STACK_VERSION = packageVersion(fileURLToPath(new URL("../node_modules/@powerhousedao/switchboard", import.meta.url)));
@@ -109,6 +120,23 @@ async function main(): Promise<void> {
     .apply(readSettings(cfg.dataDir).conversion)
     .catch((error: unknown) => console.error(`[converter] ${error instanceof Error ? error.message : String(error)}`));
 
+  // One create at a time: a React dev double-effect must not make two Workflows drives.
+  const workflowsDrive = singleFlight(() => ensureWorkflowsDrive(origin, engineFetch));
+  const template = loadPipelineTemplate();
+  if (!template) console.warn("[sidecar] the installed vault package ships no pipeline template — vaults will be created without a pipeline");
+  const pipelines = createPipelineManager({
+    dataDir: cfg.dataDir,
+    origin,
+    fetchImpl: engineFetch,
+    template,
+    pieceVersion: VAULT_PACKAGE_VERSION,
+    readSettings: () => readSettings(cfg.dataDir),
+    readModelKey: () => readModelKey(cfg.dataDir),
+    identity: { status: () => identity.status(), token: (expiresIn) => identity.token(expiresIn) },
+    workflowsDrive,
+    vaultName: async (id) => (await listVaultDrives(origin, engineFetch)).find((v) => v.id === id)?.name ?? "Vault",
+  });
+
   const control = createControlServer({
     token: cfg.controlToken,
     hostOrigin: cfg.hostOrigin,
@@ -127,8 +155,8 @@ async function main(): Promise<void> {
     createVault: (name) => createVaultDrive(origin, name, engineFetch),
     renameVault: (id, name) => renameVaultDrive(origin, id, name, engineFetch),
     deleteVault: (id) => deleteVaultDrive(origin, id, engineFetch),
-    // One create at a time: a React dev double-effect must not make two Workflows drives.
-    workflowsDrive: singleFlight(() => ensureWorkflowsDrive(origin, engineFetch)),
+    workflowsDrive,
+    pipelines,
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
     // Spec §4.4: the switch writes config.json's `local` section, answers, then the engine shuts down

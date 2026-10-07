@@ -18,7 +18,9 @@ let installed: string[] = [];
 let protection: { protected: boolean; adminAddress: string | null } = { protected: false, adminAddress: null };
 let restartsRequested = 0;
 let expired = false;
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
+let modelKey = false;
+let removedPipelines: string[] = [];
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
 
 async function start() {
   const server = createControlServer({
@@ -42,6 +44,11 @@ async function start() {
       check: async (url, drive) => { if (!url.startsWith("http")) throw new RemoteInputError("Enter the vault's address as a URL."); if (!signedIn) throw new RemoteAuthError("Sign in first."); return { id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, access: "write" }; },
       add: async (url, drive) => { const v: RemoteVault = { kind: "remote", id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, addedAt: "2026-10-06T12:00:00.000Z" }; remotes = [v]; return v; },
       remove: (id) => { remotes = remotes.filter((v) => v.id !== id); },
+    },
+    pipelines: {
+      ensure: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}` } : { state: "unconfigured" as const }),
+      status: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}`, trigger: { status: "ENABLED", lastPollAt: null, lastError: null } } : { state: "unconfigured" as const }),
+      remove: async (id: string) => { removedPipelines.push(id); },
     },
     protection: {
       get: () => protection,
@@ -80,7 +87,7 @@ describe("control API", () => {
     expect(await (await fetch(`${base}/vaults`, { headers: h })).json()).toEqual({ vaults });
     const created = await fetch(`${base}/vaults`, { method: "POST", headers: h, body: JSON.stringify({ name: "New" }) });
     expect(created.status).toBe(201);
-    expect(await created.json()).toEqual({ vault: { id: "v2", slug: "n", name: "New", noteCount: 0 } });
+    expect(await created.json()).toEqual({ vault: { id: "v2", slug: "n", name: "New", noteCount: 0 }, pipeline: { state: "unconfigured" } });
   });
   it("rejects a vault without a name", async () => {
     const base = await start();
@@ -241,5 +248,31 @@ describe("identity — expiry over the control API", () => {
     const res = await fetch(`${base}/auth/token`, { headers: { authorization: "Bearer secret" } });
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "Your sign-in expired. Sign in again." });
+  });
+});
+
+describe("pipelines over the control API", () => {
+  const h = { authorization: "Bearer secret", "content-type": "application/json" };
+  it("creating a vault reports its pipeline — unconfigured until a model is set up", async () => {
+    const base = await start();
+    const created = await fetch(`${base}/vaults`, { method: "POST", headers: h, body: JSON.stringify({ name: "New" }) });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toEqual({ vault: { id: "v2", slug: "n", name: "New", noteCount: 0 }, pipeline: { state: "unconfigured" } });
+    const explicit = await fetch(`${base}/vaults/v2/pipeline`, { method: "POST", headers: h });
+    expect(explicit.status).toBe(409);
+    expect(await explicit.json()).toEqual({ error: "Set up a model first — Settings › Models." });
+    expect(await (await fetch(`${base}/vaults/v2/pipeline`, { headers: h })).json()).toEqual({ pipeline: { state: "unconfigured" } });
+  });
+  it("with a model configured: created ready, re-creatable, readable; deleting the vault removes its pipeline", async () => {
+    modelKey = true;
+    const base = await start();
+    const created = await fetch(`${base}/vaults`, { method: "POST", headers: h, body: JSON.stringify({ name: "New" }) });
+    expect((await created.json()).pipeline).toEqual({ state: "ready", workflowId: "wf-v2", connectionId: "conn-v2" });
+    const again = await fetch(`${base}/vaults/v2/pipeline`, { method: "POST", headers: h });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ pipeline: { state: "ready", workflowId: "wf-v2", connectionId: "conn-v2" } });
+    expect((await (await fetch(`${base}/vaults/v1/pipeline`, { headers: h })).json()).pipeline.trigger.status).toBe("ENABLED");
+    await fetch(`${base}/vaults/v1`, { method: "DELETE", headers: h });
+    expect(removedPipelines).toEqual(["v1"]);
   });
 });

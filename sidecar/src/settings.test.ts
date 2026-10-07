@@ -78,3 +78,13 @@ describe("local protection (spec §4.4: one switch for the local engine)", () =>
     expect(() => writeLocalProtection(dir(), { protected: true, adminAddress: null })).toThrow(SettingsError);
   });
 });
+
+describe("model endpoint normalisation (Review Focus #1: a pasted chat-completions URL)", () => {
+  it("strips the completions/models path and trailing slashes, keeps a root endpoint as given", () => {
+    const d = dir();
+    expect(writeSettings(d, { models: { endpoint: "https://openrouter.ai/api/v1/chat/completions" } }).models.endpoint).toBe("https://openrouter.ai/api/v1");
+    expect(writeSettings(d, { models: { endpoint: "http://localhost:11434/v1/" } }).models.endpoint).toBe("http://localhost:11434/v1");
+    expect(writeSettings(d, { models: { endpoint: "https://api.example.com/v1/models?x=1#y" } }).models.endpoint).toBe("https://api.example.com/v1");
+    expect(writeSettings(d, { models: { endpoint: "http://127.0.0.1:8080" } }).models.endpoint).toBe("http://127.0.0.1:8080");
+  });
+});
