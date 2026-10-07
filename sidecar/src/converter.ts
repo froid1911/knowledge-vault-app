@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from "node:child_process";
+import { clearHelperPid, stopOrphanedHelper, writeHelperPid } from "./orphans.js";
 import { appendFileSync, createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
@@ -120,6 +121,9 @@ export function converterEnvironment(inherited: Record<string, string | undefine
 export function createConverterManager(deps: ConverterDeps) {
   const spawnImpl: NonNullable<ConverterDeps["spawn"]> =
     deps.spawn ?? ((cmd, args, opts) => nodeSpawn(cmd, args, opts) as unknown as ConverterChild);
+  // A previous engine that died by SIGKILL left its helper running: stop it before starting ours.
+  const orphan = stopOrphanedHelper(deps.dataDir);
+  if (orphan !== undefined) console.warn(`[converter] stopped an orphaned helper (pid ${orphan}) left by a previous engine`);
   const fetchImpl = deps.fetchImpl ?? fetch;
   const pickPort = deps.pickPort ?? freePort;
   const log = deps.log ?? ((line: string) => console.log(`[converter] ${line}`));
@@ -214,6 +218,7 @@ export function createConverterManager(deps: ConverterDeps) {
       stdio: ["ignore", "pipe", "pipe"],
     });
     child = proc;
+    if (proc.pid) writeHelperPid(deps.dataDir, proc.pid);
     lastStartAt = now();
     appendFileSync(logPath, `--- ${new Date(now()).toISOString()} start pid ${proc.pid ?? "?"} port ${port}\n`);
     logStream ??= createWriteStream(logPath, { flags: "a" });
@@ -226,6 +231,7 @@ export function createConverterManager(deps: ConverterDeps) {
     proc.on?.("error", (spawnError) => {
       if (gen !== generation) return;
       child = null;
+      clearHelperPid(deps.dataDir);
       localUrl = null;
       state = "down";
       error = `the converter could not start: ${spawnError.message}`;
@@ -264,6 +270,7 @@ export function createConverterManager(deps: ConverterDeps) {
 
   function onExit(code: number | null): void {
     child = null;
+    clearHelperPid(deps.dataDir);
     localUrl = null;
     exitCode = code;
     if (stopping) {

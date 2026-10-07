@@ -153,3 +153,12 @@ export function writeLocalProtection(dataDir: string, protection: LocalProtectio
   );
   return readLocalProtection(dataDir);
 }
+
+/** Spec §9: the stack that last opened this store (top-level `stackVersion` of config.json); a store never opened has none. */
+export function readStackVersion(dataDir: string): string | undefined {
+  const v = readRaw(dataDir).stackVersion;
+  return typeof v === "string" && v ? v : undefined;
+}
+export function writeStackVersion(dataDir: string, stackVersion: string): void {
+  writeConfig(dataDir, { ...readRaw(dataDir), stackVersion });
+}

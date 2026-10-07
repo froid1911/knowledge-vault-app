@@ -11,10 +11,14 @@ import { checkRemoteVault, parseRemoteVaultInput, readRemoteVaults, RemoteInputE
 import { prepareDataDir } from "./data-dir.js";
 import { applyEnvironment, engineEnvironment } from "./environment.js";
 import { switchboardOptions } from "./options.js";
-import { readyLine, restartLine, waitForHealth } from "./ready.js";
+import { fatalLine, readyLine, restartLine, shutdownLine, waitForHealth } from "./ready.js";
 import { ensureSecret } from "./secrets.js";
 import { singleFlight } from "./single-flight.js";
-import { readModelKey, readSettings, writeSettings } from "./settings.js";
+import { readModelKey, readSettings, readStackVersion, writeSettings, writeStackVersion } from "./settings.js";
+import { acquireEngineLock, StoreInUseError } from "./engine-lock.js";
+import { readLastAction, runPendingAction, takePending, writePending } from "./pending.js";
+import { cleanPartialBackups, listBackups } from "./backups.js";
+import { compareStack, TOO_NEW_MESSAGE } from "./store-guard.js";
 import { createPipelineManager } from "./pipelines.js";
 import { validateModelEndpoint } from "./models-validate.js";
 import { privateHostAllow } from "./egress.js";
@@ -58,12 +62,66 @@ function loadPipelineTemplate(): PipelineTemplate | undefined {
 const STACK_VERSION = packageVersion(fileURLToPath(new URL("../node_modules/@powerhousedao/switchboard", import.meta.url)));
 const VAULT_PACKAGE_VERSION = packageVersion(PACKAGE_DIRS[0]!);
 
+/** Exit code for a refusal the engine explains on stdout (`fatal` line): the supervisor shows it and does not respawn. */
+const EXIT_FATAL = 78;
+/** Prints the fatal line, then exits once it has left the process (stdout to a pipe is asynchronous on Windows). */
+function fatalExit(reason: string, message: string): Promise<never> {
+  console.error(`[sidecar] ${message}`);
+  return new Promise(() => process.stdout.write(fatalLine(reason, message) + "\n", () => process.exit(EXIT_FATAL)));
+}
+/** The last `n` lines of a log file; none when it does not exist yet. */
+function tailLines(path: string, n: number): string[] {
+  try {
+    const lines = readFileSync(path, "utf8").split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    return lines.slice(-n);
+  } catch {
+    return [];
+  }
+}
+
 async function main(): Promise<void> {
   const cfg = readSidecarConfig(process.env);
   cfg.dataDir = resolve(cfg.dataDir); // relative values (the dev loop's) resolve against cwd = sidecar/
   // Everything the engine creates — PGlite files, logs, the SDK's .ph — is private to the user.
   process.umask(0o077);
   prepareDataDir(cfg.dataDir);
+
+  // Spec §9 — before anything opens the store, in this order:
+  // (1) one engine per data dir; another live engine is a refusal, a dead one's lock is replaced.
+  let releaseLock: () => void;
+  try {
+    releaseLock = acquireEngineLock(cfg.dataDir, process.pid);
+  } catch (error) {
+    if (error instanceof StoreInUseError) return fatalExit("store-in-use", error.message);
+    throw error;
+  }
+  process.on("exit", () => releaseLock());
+  // (2) a backup, restore or delete-all the user asked for runs now, with the store closed.
+  const pending = takePending(cfg.dataDir);
+  if (pending) {
+    const result = runPendingAction(cfg.dataDir, pending, STACK_VERSION);
+    console.log(`[sidecar] ${pending.action}: ${result.ok ? "done" : "refused"} — ${result.detail}`);
+    if (pending.action === "delete-all") {
+      prepareDataDir(cfg.dataDir); // the store is fresh again: its folders, and our lock, are recreated
+      releaseLock = acquireEngineLock(cfg.dataDir, process.pid);
+    }
+  }
+  // (3) an interrupted backup is not a backup.
+  for (const name of cleanPartialBackups(cfg.dataDir)) console.warn(`[sidecar] removed an incomplete backup: ${name}`);
+  // (4) the stack guard: never open a store written by a newer stack; back up before opening one written by an older stack.
+  const recordedStack = readStackVersion(cfg.dataDir);
+  if (STACK_VERSION === "unknown") {
+    console.warn("[sidecar] the Switchboard's version is unknown — the store guard is skipped");
+  } else {
+    const relation = compareStack(STACK_VERSION, recordedStack);
+    if (relation === "downgrade") return fatalExit("store-too-new", TOO_NEW_MESSAGE(recordedStack!, STACK_VERSION));
+    if (relation === "upgrade") {
+      // Labelled with the stack that wrote the store, so the restore guard reads it right.
+      const result = runPendingAction(cfg.dataDir, { action: "backup" }, recordedStack!);
+      console.log(`[sidecar] upgrading the store from stack ${recordedStack} to ${STACK_VERSION}: backup ${result.ok ? "made" : "refused"} — ${result.detail}`);
+    }
+  }
   const workflowsKey = ensureSecret(join(cfg.dataDir, "secrets", "workflows.key"));
   const configFile = fileURLToPath(new URL("../powerhouse.config.json", import.meta.url));
   // cwd = the data dir, so anything written relative to cwd (the Renown SDK's
@@ -102,6 +160,15 @@ async function main(): Promise<void> {
   if (existsSync(options.identity.keypairPath)) chmodSync(options.identity.keypairPath, 0o600);
   const origin = `http://127.0.0.1:${switchboard.port}`;
   await waitForHealth(`${origin}/health`, { timeoutMs: 60_000, intervalMs: 250 });
+  // (5) the store now belongs to this stack.
+  if (STACK_VERSION !== "unknown") writeStackVersion(cfg.dataDir, STACK_VERSION);
+  /** Announce a restart and stop; whoever spawned us starts us again at once (spec §4.4, §9). */
+  const requestRestart = (reason: string): void => {
+    setTimeout(() => {
+      process.stdout.write(restartLine(reason) + "\n");
+      process.kill(process.pid, "SIGINT");
+    }, 200).unref();
+  };
   // A protected engine answers only authenticated callers; our own management calls carry the
   // administrator's token. An open engine gets plain fetch — no header, the anonymous owner.
   const engineFetch = cfg.protected ? authorizedFetch(createEngineTokenProvider(identity)) : fetch;
@@ -175,13 +242,25 @@ async function main(): Promise<void> {
       identity: { status: () => identity.status() },
       // After the 202 has gone out: announce the restart and shut down; whoever spawned us
       // starts us again with KV_PROTECTED/KV_ADMIN_ADDRESS read from config.json's local section.
-      scheduleRestart: () => {
-        setTimeout(() => {
-          process.stdout.write(restartLine("protection") + "\n");
-          process.kill(process.pid, "SIGINT");
-        }, 200).unref();
-      },
+      scheduleRestart: () => requestRestart("protection"),
     }),
+    // Spec §9: the action is recorded and runs at the next start, with the store closed.
+    maintenance: {
+      listBackups: () => listBackups(cfg.dataDir),
+      lastAction: () => readLastAction(cfg.dataDir),
+      schedule: (action) => {
+        writePending(cfg.dataDir, action);
+        requestRestart(action.action);
+      },
+    },
+    shutdown: () => {
+      setTimeout(() => {
+        process.stdout.write(shutdownLine() + "\n");
+        process.kill(process.pid, "SIGINT");
+      }, 200).unref();
+    },
+    logsTail: () => tailLines(join(cfg.dataDir, "logs", "sidecar.log"), 200),
+    debugRoutes: process.env.KV_DEBUG_ROUTES === "1",
     converter: {
       status: () => converter.status(),
       restart: () => converter.restart(),

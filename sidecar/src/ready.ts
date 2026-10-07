@@ -26,3 +26,13 @@ export async function waitForHealth(
     await new Promise((r) => setTimeout(r, opts.intervalMs));
   }
 }
+
+/** The engine refused to start and says why (`store-too-new`, `store-in-use`); the shell shows it and does not respawn. */
+export function fatalLine(reason: string, message: string): string {
+  return JSON.stringify({ event: "fatal", reason, message });
+}
+
+/** The engine is stopping on request (POST /shutdown): its exit is not a crash. */
+export function shutdownLine(): string {
+  return JSON.stringify({ event: "shutdown" });
+}

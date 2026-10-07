@@ -21,10 +21,19 @@ let expired = false;
 let modelKey = false;
 let removedPipelines: string[] = [];
 let disabledFor: string[] = [];
-afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; disabledFor = []; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
+let scheduled: unknown[] = [];
+let shutdowns = 0;
+let debugRoutes = false;
+afterEach(async () => { await close?.(); close = undefined; deleted = []; signedIn = false; remotes = []; applied = []; restarted = 0; installed = []; protection = { protected: false, adminAddress: null }; restartsRequested = 0; expired = false; modelKey = false; removedPipelines = []; disabledFor = []; scheduled = []; shutdowns = 0; debugRoutes = false; settings = { version: 1, models: { endpoint: "https://openrouter.ai/api/v1", model: "", hasKey: false }, conversion: { mode: "local", remoteUrl: "" } }; });
 
 async function start() {
-  const server = createControlServer({
+  const server = createControlServer(await harnessDeps());
+  const port = await server.listen();
+  close = server.close;
+  return `http://127.0.0.1:${port}`;
+}
+async function harnessDeps(): Promise<Parameters<typeof createControlServer>[0]> {
+  return ({
     token: "secret",
     hostOrigin: "http://127.0.0.1:4200",
     status: () => ({ ok: true, port: 4201, controlPort: 0, appVersion: "0.1.0", protected: false, dataDir: "/data/vault", stackVersion: "6.2.3-dev.44", vaultPackageVersion: "1.0.54-dev.22" }),
@@ -71,10 +80,15 @@ async function start() {
       remove: async (c) => { installed = installed.filter((x) => x !== c); return converterStatus; },
     },
     applyConversion: async (c) => { applied.push(c); },
+    maintenance: {
+      listBackups: () => [{ name: "2026-10-07T12-00-00Z-6.2.3-dev.44", path: "/data/vault/backups/2026-10-07T12-00-00Z-6.2.3-dev.44", bytes: 1500, stackVersion: "6.2.3-dev.44", createdAt: "2026-10-07T12:00:00.000Z" }],
+      lastAction: () => ({ action: "backup", ok: true, detail: "Backed up 1500 bytes.", at: "2026-10-07T12:00:01.000Z" }),
+      schedule: (action) => { scheduled.push(action); },
+    },
+    shutdown: () => { shutdowns += 1; },
+    logsTail: () => ["line one", "line two"],
+    debugRoutes,
   });
-  const port = await server.listen();
-  close = server.close;
-  return `http://127.0.0.1:${port}`;
 }
 
 describe("control API", () => {
@@ -302,5 +316,46 @@ describe("settings changes reach the pipelines", () => {
     expect(disabledFor).toEqual([]);
     await fetch(`${base}/settings`, { method: "PUT", headers: h, body: JSON.stringify({ models: { apiKey: "" } }) });
     expect(disabledFor).toEqual(["the model key was removed"]);
+  });
+
+  it("Plan 5: lists backups with the last action, and schedules a backup, a restore or a delete-all for the next start (202 restarting)", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret", "content-type": "application/json" };
+    const list = await fetch(`${base}/backups`, { headers: h });
+    expect(list.status).toBe(200);
+    expect(await list.json()).toMatchObject({ backups: [{ name: "2026-10-07T12-00-00Z-6.2.3-dev.44", bytes: 1500 }], lastAction: { action: "backup", ok: true } });
+    const made = await fetch(`${base}/backups`, { method: "POST", headers: h });
+    expect(made.status).toBe(202);
+    expect(await made.json()).toEqual({ restarting: true });
+    const restored = await fetch(`${base}/backups/2026-10-07T12-00-00Z-6.2.3-dev.44/restore`, { method: "POST", headers: h });
+    expect(restored.status).toBe(202);
+    expect((await fetch(`${base}/backups/nope/restore`, { method: "POST", headers: h })).status).toBe(404);
+    const refused = await fetch(`${base}/data/delete-all`, { method: "POST", headers: h, body: JSON.stringify({ confirm: "yes" }) });
+    expect(refused.status).toBe(400);
+    const gone = await fetch(`${base}/data/delete-all`, { method: "POST", headers: h, body: JSON.stringify({ confirm: "delete", includeBackups: true }) });
+    expect(gone.status).toBe(202);
+    expect(scheduled).toEqual([{ action: "backup" }, { action: "restore", name: "2026-10-07T12-00-00Z-6.2.3-dev.44" }, { action: "delete-all", includeBackups: true }]);
+  });
+  it("Plan 5: shutdown answers 202 and stops; the log tail is the supervisor's last lines; the crash route exists only when debug routes are on", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret" };
+    const stop = await fetch(`${base}/shutdown`, { method: "POST", headers: h });
+    expect(stop.status).toBe(202);
+    expect(await stop.json()).toEqual({ stopping: true });
+    expect(shutdowns).toBe(1);
+    expect(await (await fetch(`${base}/logs/tail`, { headers: h })).json()).toEqual({ lines: ["line one", "line two"] });
+    expect((await fetch(`${base}/debug/crash`, { method: "POST", headers: h })).status).toBe(404);
+  });
+
+  it("Plan 5: a busy control port falls back upward, and the bound port is what listen() resolves", async () => {
+    const { createServer: createNet } = await import("node:net");
+    const holder = createNet();
+    const held = await new Promise<number>((resolve) => holder.listen(0, "127.0.0.1", () => resolve((holder.address() as { port: number }).port)));
+    const server = createControlServer({ ...(await harnessDeps()) });
+    const port = await server.listen(held);
+    expect(port).toBe(held + 1);
+    expect((await fetch(`http://127.0.0.1:${port}/status`, { headers: { authorization: "Bearer secret" } })).status).toBe(200);
+    await server.close();
+    await new Promise((r) => holder.close(r));
   });
 });

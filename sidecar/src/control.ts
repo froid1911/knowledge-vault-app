@@ -6,6 +6,8 @@ import { ConverterBusyError, ConverterInputError, type ConverterStatus } from ".
 import type { EnsureResult, PipelineStatus } from "./pipelines.js";
 import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch, type LocalProtection } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
+import type { BackupInfo } from "./backups.js";
+import type { ActionResult, PendingAction } from "./pending.js";
 
 export type StatusPayload = {
   ok: true;
@@ -66,6 +68,18 @@ export type ControlDeps = {
     add: (url: string, drive?: string) => Promise<RemoteVault>;
     remove: (id: string) => void;
   };
+  /** Spec §9: backups, restores and the delete-all run with the store closed — the engine records the wish and restarts. */
+  maintenance: {
+    listBackups: () => BackupInfo[];
+    lastAction: () => ActionResult | undefined;
+    schedule: (action: PendingAction) => void;
+  };
+  /** POST /shutdown: announce the stop (so the supervisor does not count it as a crash) and exit. */
+  shutdown: () => void;
+  /** GET /logs/tail: the supervisor's last lines, for Diagnostics. */
+  logsTail: () => string[];
+  /** KV_DEBUG_ROUTES=1 only: POST /debug/crash exits 3 so the supervisor can be exercised. */
+  debugRoutes?: boolean;
 };
 
 function settingsPatch(body: Record<string, unknown>): SettingsPatch {
@@ -259,6 +273,37 @@ export function createControlServer(deps: ControlDeps) {
         deps.remote.remove(id);
         return send(res, 200, { removed: id }, allowed);
       }
+      // Plan 5 — maintenance. Every action runs at the next start, with the store closed.
+      if (req.method === "GET" && url.pathname === "/backups") {
+        return send(res, 200, { backups: deps.maintenance.listBackups(), lastAction: deps.maintenance.lastAction() ?? null }, allowed);
+      }
+      if (req.method === "POST" && url.pathname === "/backups") {
+        deps.maintenance.schedule({ action: "backup" });
+        return send(res, 202, { restarting: true }, allowed);
+      }
+      const restore = url.pathname.match(/^\/backups\/([^/]+)\/restore$/);
+      if (restore && req.method === "POST") {
+        const name = decodeURIComponent(restore[1]!);
+        if (!deps.maintenance.listBackups().some((b) => b.name === name)) return send(res, 404, { error: `No backup named ${name}.` }, allowed);
+        deps.maintenance.schedule({ action: "restore", name });
+        return send(res, 202, { restarting: true }, allowed);
+      }
+      if (req.method === "POST" && url.pathname === "/data/delete-all") {
+        const body = await readJson(req);
+        if (body.confirm !== "delete") return send(res, 400, { error: 'Deleting everything needs `confirm: "delete"`.' }, allowed);
+        deps.maintenance.schedule({ action: "delete-all", includeBackups: body.includeBackups === true });
+        return send(res, 202, { restarting: true }, allowed);
+      }
+      if (req.method === "POST" && url.pathname === "/shutdown") {
+        deps.shutdown();
+        return send(res, 202, { stopping: true }, allowed);
+      }
+      if (req.method === "GET" && url.pathname === "/logs/tail") return send(res, 200, { lines: deps.logsTail() }, allowed);
+      if (req.method === "POST" && url.pathname === "/debug/crash" && deps.debugRoutes === true) {
+        send(res, 202, { crashing: true }, allowed);
+        setTimeout(() => process.exit(3), 50);
+        return;
+      }
       return send(res, 404, { error: "Not found" }, allowed);
     } catch (error) {
       if (error instanceof BadRequestError || error instanceof SettingsError || error instanceof ConverterInputError) return send(res, 400, { error: error.message }, allowed);
@@ -272,15 +317,32 @@ export function createControlServer(deps: ControlDeps) {
     }
   });
   return {
-    /** Bind on loopback; `port` 0 picks a free one. Resolves the bound port. */
-    listen(port = 0): Promise<number> {
-      return new Promise((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(port, "127.0.0.1", () => {
-          const addr = server.address();
-          resolve(typeof addr === "object" && addr ? addr.port : port);
+    /**
+     * Bind on loopback; `port` 0 picks a free one. A busy port falls back upward
+     * (`port+1 … port+20`) — the readiness line carries the real one. Resolves the bound port.
+     */
+    async listen(port = 0): Promise<number> {
+      const tryListen = (p: number): Promise<number> =>
+        new Promise((resolve, reject) => {
+          const onError = (error: NodeJS.ErrnoException) => reject(error);
+          server.once("error", onError);
+          server.listen(p, "127.0.0.1", () => {
+            server.off("error", onError);
+            const addr = server.address();
+            resolve(typeof addr === "object" && addr ? addr.port : p);
+          });
         });
-      });
+      const candidates = port === 0 ? [0] : Array.from({ length: 21 }, (_, i) => port + i);
+      let lastError: unknown;
+      for (const p of candidates) {
+        try {
+          return await tryListen(p);
+        } catch (error) {
+          lastError = error;
+          if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(`no free control port in ${port}–${port + 20}`);
     },
     close(): Promise<void> {
       return new Promise((resolve) => server.close(() => resolve()));
