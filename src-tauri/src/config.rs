@@ -117,14 +117,20 @@ pub const DEFAULT_PORTS: Ports = Ports {
     control: 4202,
 };
 
-/// First port at or after `start` that binds on loopback, probing at most 20.
-pub fn pick_free_port(start: u16) -> u16 {
+/// First port at or after `start` that binds on loopback and is not in `taken`, probing at most 20.
+pub fn pick_free_port_excluding(start: u16, taken: &[u16]) -> u16 {
     for p in start..start.saturating_add(20) {
-        if TcpListener::bind(("127.0.0.1", p)).is_ok() {
+        if !taken.contains(&p) && TcpListener::bind(("127.0.0.1", p)).is_ok() {
             return p;
         }
     }
     start
+}
+
+/// First port at or after `start` that binds on loopback, probing at most 20.
+#[cfg(test)]
+pub fn pick_free_port(start: u16) -> u16 {
+    pick_free_port_excluding(start, &[])
 }
 
 /// 32 random bytes as hex; a new one every launch.
@@ -147,6 +153,14 @@ mod tests {
         let picked = pick_free_port(start);
         assert_ne!(picked, start);
         assert!(picked > start && picked <= start + 20);
+    }
+
+    #[test]
+    fn never_picks_a_port_another_role_has() {
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let start = free.local_addr().unwrap().port();
+        drop(free);
+        assert_ne!(pick_free_port_excluding(start, &[start]), start);
     }
 
     #[test]

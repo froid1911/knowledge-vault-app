@@ -1,12 +1,13 @@
-// Downloads the official Node binary for a target, verifies it against SHASUMS256.txt, and writes
-// src-tauri/binaries/node-<triple> (Tauri's external-binary naming).
+// Downloads the official Node binary for a target, verifies it against the checksum pinned in
+// scripts/node-version.mjs, and writes src-tauri/binaries/kv-node-<triple> (Tauri's external-binary
+// naming; not `node`: a .deb installs external binaries into /usr/bin, where `node` belongs to the system).
 //   node scripts/fetch-node.mjs [--target <triple>]   (default: this machine's rustc host triple)
 import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { nodeAsset, verifySha256 } from "./lib/node-dist.mjs";
-import { NODE_VERSION } from "./node-version.mjs";
+import { NODE_SHA256, NODE_VERSION } from "./node-version.mjs";
 
 const arg = (name) => {
   const i = process.argv.indexOf(name);
@@ -23,15 +24,12 @@ async function download(url, to) {
   writeFileSync(to, Buffer.from(await res.arrayBuffer()));
 }
 
-const sumsPath = join(cache, "SHASUMS256.txt");
-if (!existsSync(sumsPath)) await download(asset.shasums, sumsPath);
-const { readFileSync } = await import("node:fs");
-const sums = readFileSync(sumsPath, "utf8");
+const expected = NODE_SHA256[asset.archive];
 const archive = join(cache, asset.archive);
 let cached = existsSync(archive);
 if (cached) {
   try {
-    verifySha256(archive, sums);
+    verifySha256(archive, expected);
   } catch {
     cached = false;
   }
@@ -39,14 +37,14 @@ if (cached) {
 if (!cached) {
   console.log(`[fetch-node] downloading ${asset.url}`);
   await download(asset.url, archive);
-  verifySha256(archive, sums);
+  verifySha256(archive, expected);
 }
 console.log(`[fetch-node] ${asset.archive} verified`);
 const extractTo = join(cache, "extract");
 rmSync(extractTo, { recursive: true, force: true });
 mkdirSync(extractTo, { recursive: true });
 execFileSync("tar", ["-xJf", archive, "-C", extractTo, asset.binary]);
-const out = resolve("src-tauri", "binaries", `node-${triple}`);
+const out = resolve("src-tauri", "binaries", `kv-node-${triple}`);
 mkdirSync(resolve("src-tauri", "binaries"), { recursive: true });
 copyFileSync(join(extractTo, asset.binary), out);
 chmodSync(out, 0o755);

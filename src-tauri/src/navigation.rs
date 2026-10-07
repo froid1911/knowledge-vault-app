@@ -5,7 +5,9 @@
 
 /// Origins the webview may navigate to: the app's own host (Vite in dev, the bundled
 /// app in production) and Tauri's internal scheme.
-pub fn is_internal(url: &url::Url, host_port: u16) -> bool {
+/// An installed app serves on 127.0.0.1 only: `localhost` may resolve to ::1, where another
+/// program could listen on the same port — so it is internal only in development.
+pub fn is_internal(url: &url::Url, host_port: u16, packaged: bool) -> bool {
     match url.scheme() {
         // about:blank is what the webview needs; a top-level data:/blob: navigation would replace the app.
         "tauri" | "about" => true,
@@ -13,7 +15,8 @@ pub fn is_internal(url: &url::Url, host_port: u16) -> bool {
             let host = url.host_str().unwrap_or("");
             let port = url.port_or_known_default();
             (host == "tauri.localhost")
-                || ((host == "127.0.0.1" || host == "localhost") && port == Some(host_port))
+                || ((host == "127.0.0.1" || (host == "localhost" && !packaged))
+                    && port == Some(host_port))
         }
         _ => false,
     }
@@ -47,22 +50,38 @@ mod tests {
         );
         assert_eq!(external_target(&u("file:///etc/passwd")), None);
         assert_eq!(external_target(&u("vscode://file/x")), None);
-        assert!(!is_internal(&u("data:text/html,<h1>x</h1>"), 4200));
-        assert!(!is_internal(&u("blob:http://127.0.0.1:4200/abc"), 4200));
+        assert!(!is_internal(&u("data:text/html,<h1>x</h1>"), 4200, false));
+        assert!(!is_internal(
+            &u("blob:http://127.0.0.1:4200/abc"),
+            4200,
+            false
+        ));
     }
 
     #[test]
     fn the_app_and_tauri_are_internal_everything_else_is_not() {
-        assert!(is_internal(&u("http://127.0.0.1:4200/vault/x"), 4200));
-        assert!(is_internal(&u("http://localhost:4200/"), 4200));
-        assert!(is_internal(&u("tauri://localhost/index.html"), 4200));
-        assert!(is_internal(&u("http://tauri.localhost/"), 4200));
+        assert!(is_internal(
+            &u("http://127.0.0.1:4200/vault/x"),
+            4200,
+            false
+        ));
+        assert!(is_internal(&u("http://localhost:4200/"), 4200, false));
+        assert!(is_internal(&u("tauri://localhost/index.html"), 4200, false));
+        assert!(is_internal(&u("http://tauri.localhost/"), 4200, false));
         assert!(!is_internal(
             &u("https://openrouter.ai/auth?callback_url=x"),
-            4200
+            4200,
+            false
         ));
-        assert!(!is_internal(&u("https://www.renown.id/"), 4200));
-        assert!(!is_internal(&u("http://127.0.0.1:4201/graphql"), 4200)); // the engine answers fetches, never a navigation
-        assert!(!is_internal(&u("file:///etc/passwd"), 4200));
+        assert!(!is_internal(&u("https://www.renown.id/"), 4200, false));
+        assert!(!is_internal(
+            &u("http://127.0.0.1:4201/graphql"),
+            4200,
+            false
+        )); // the engine answers fetches, never a navigation
+        assert!(!is_internal(&u("file:///etc/passwd"), 4200, false));
+        // an installed app: 127.0.0.1 only
+        assert!(is_internal(&u("http://127.0.0.1:46420/"), 46420, true));
+        assert!(!is_internal(&u("http://localhost:46420/"), 46420, true));
     }
 }

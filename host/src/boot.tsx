@@ -76,6 +76,10 @@ export function Boot({
   useThemeRoot();
   useState(goHomeIfAsked); // once, before the first route is read
   useEffect(() => installExternalLinksForTauri(), []);
+  // Tell the shell the page loaded and IPC works (its smoke check waits for this; harmless otherwise).
+  useEffect(() => {
+    invokeIfTauri("host_loaded").catch(() => {});
+  }, []);
   const [status, setStatus] = useState<SidecarStatus>({ state: "starting" });
   const [app, setApp] = useState<LoadedApp | null>(null);
   const [failure, setFailure] = useState<string | null>(null);

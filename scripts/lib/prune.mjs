@@ -80,9 +80,13 @@ export function prune(nodeModules, triple) {
       if (e.name === "prebuilds") {
         for (const plat of readdirSync(p, { withFileTypes: true })) {
           if (!plat.isDirectory()) continue;
-          const [os, cpu] = plat.name.split("-");
+          // Only folders named <os>-<cpu>[+<cpu>…] are platform builds; anything else in prebuilds/ stays.
+          const m = /^([a-z0-9]+)-([a-z0-9_]+(?:\+[a-z0-9_]+)*)$/.exec(plat.name);
+          if (!m || !OS.has(m[1])) continue;
+          const cpus = m[2].split("+").map((c) => CPU_ALIAS[c] ?? c);
           const pp = join(p, plat.name);
-          if (os !== target.os || (CPU_ALIAS[cpu] ?? cpu) !== target.cpu) {
+          const wrongLibc = m[1] === "linuxmusl" && target.libc === "gnu";
+          if (wrongLibc || (m[1] === "linuxmusl" ? "linux" : m[1]) !== target.os || !cpus.includes(target.cpu)) {
             remove(pp);
           } else if (target.libc === "gnu") {
             for (const f of readdirSync(pp)) if (f.includes(".musl.") || f.includes("-musl")) remove(join(pp, f));

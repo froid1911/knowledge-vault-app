@@ -1,4 +1,37 @@
-import { Server } from "node:net";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { Server, type Socket } from "node:net";
+
+/**
+ * DNS rebinding (Plan 6 review I8): a web page can make its own name resolve to 127.0.0.1 and then
+ * talk to the engine — loopback binding alone does not stop it, and the Switchboard checks no Host.
+ * The engine's server answers only requests addressed to 127.0.0.1:<port> or localhost:<port>;
+ * anything else gets 403 (an upgrade is dropped) before the Switchboard sees it.
+ */
+export function allowedHost(host: string | undefined, port: number): boolean {
+  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+}
+function guardHost(server: Server, port: number): void {
+  const marked = server as Server & { __kvHostGuard?: boolean };
+  if (marked.__kvHostGuard) return;
+  marked.__kvHostGuard = true;
+  const emit = server.emit.bind(server);
+  server.emit = ((event: string | symbol, ...args: unknown[]) => {
+    if (event === "request") {
+      const [req, res] = args as [IncomingMessage, ServerResponse];
+      if (!allowedHost(req.headers.host, port)) {
+        res.writeHead(403, { "content-type": "text/plain" }).end("Forbidden: this engine answers only requests addressed to it.");
+        return true;
+      }
+    } else if (event === "upgrade") {
+      const [req, socket] = args as [IncomingMessage, Socket];
+      if (!allowedHost(req.headers.host, port)) {
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        return true;
+      }
+    }
+    return emit(event, ...args);
+  }) as typeof server.emit;
+}
 
 /**
  * Spec §4.7: the engine must not listen on the LAN. The Switchboard's HTTP
@@ -15,6 +48,8 @@ export function bindLoopbackOnly(port: number, host = "127.0.0.1"): () => void {
     const [first, second] = args;
     const asPort =
       typeof first === "number" ? first : typeof first === "string" && /^\d+$/.test(first) ? Number(first) : undefined;
+    const engine = asPort === port || (first && typeof first === "object" && Number((first as { port?: unknown }).port) === port);
+    if (engine) guardHost(this, port);
     if (asPort === port) {
       if (typeof second === "string") return original.apply(this, args as never); // a host was named: respect it
       // (port, cb?) or (port, backlog, cb?) or (port, undefined, cb?)

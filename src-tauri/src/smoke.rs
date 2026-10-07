@@ -1,16 +1,21 @@
 //! Plan 6: `KV_SMOKE=1` turns a launch into a check — the installed app exits 0 once the engine
-//! reported ready and the host page answered on its port (stopping the engine gracefully on the
+//! reported ready, the host page answered on its port and the page called the shell over IPC (stopping the engine gracefully on the
 //! way out), or 1 after 90 s. scripts/smoke-app.mjs and CI drive it.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 use crate::sidecar::SidecarState;
 
 const DEADLINE: Duration = Duration::from_secs(90);
+
+/// Set when the host page called `host_loaded` over IPC.
+#[derive(Default)]
+pub struct HostLoaded(pub AtomicBool);
 
 /// `GET /` on 127.0.0.1:<port> answers 200.
 pub fn host_answers(port: u16) -> bool {
@@ -40,9 +45,11 @@ pub fn watch(app: AppHandle, host_port: u16) {
             .unwrap()
             .ready
             .is_some();
-        if ready && host_answers(host_port) {
+        // The window loaded the page and the page reached the shell over IPC (review minor 3).
+        let loaded = app.state::<HostLoaded>().0.load(Ordering::SeqCst);
+        if ready && loaded && host_answers(host_port) {
             println!(
-                "[smoke] ok: the engine is ready and the host answered on {host_port} after {:.1} s",
+                "[smoke] ok: the engine is ready, the host answered on {host_port} and the page reached the shell after {:.1} s",
                 started.elapsed().as_secs_f64()
             );
             crate::quit(&app);
@@ -50,7 +57,7 @@ pub fn watch(app: AppHandle, host_port: u16) {
         }
         if started.elapsed() > DEADLINE {
             eprintln!(
-                "[smoke] failed: engine ready = {ready}, host answering = {} after {} s",
+                "[smoke] failed: engine ready = {ready}, page reached the shell = {loaded}, host answering = {} after {} s",
                 host_answers(host_port),
                 DEADLINE.as_secs()
             );

@@ -330,7 +330,7 @@ pub fn spawn_sidecar(
     // The engine's environment is scrubbed by the sidecar itself (environment.ts), whoever spawns it.
     let base = if paths.sidecar.bundled_node {
         app.shell()
-            .sidecar("node")
+            .sidecar("kv-node")
             .map_err(|e| tauri::Error::Anyhow(e.into()))?
     } else {
         app.shell().command("node")

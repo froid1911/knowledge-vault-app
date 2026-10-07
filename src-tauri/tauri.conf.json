@@ -5,7 +5,8 @@
   "identifier": "xyz.powerhouse.desktop-knowledge-vault",
   "build": {
     "devUrl": "http://127.0.0.1:4200",
-    "frontendDist": "../host/dist"
+    "frontendDist": "../host/dist",
+    "beforeBuildCommand": "node scripts/check-bundle-inputs.mjs"
   },
   "app": {
     "security": {
@@ -30,7 +31,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/node"
+      "binaries/kv-node"
     ],
     "resources": {
       "../.stage/sidecar/": "sidecar/"
@@ -42,7 +43,8 @@
     },
     "macOS": {
       "entitlements": "entitlements.plist",
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "13.5",
+      "signingIdentity": "-"
     }
   }
 }

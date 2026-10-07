@@ -1,5 +1,6 @@
 mod backoff;
 mod config;
+mod host_server;
 mod log_tail;
 mod navigation;
 mod sidecar;
@@ -7,7 +8,8 @@ mod smoke;
 mod tray;
 
 use config::{
-    AppPaths, DEFAULT_PORTS, Ports, SidecarLaunch, UiConfig, new_control_token, pick_free_port,
+    AppPaths, DEFAULT_PORTS, Ports, SidecarLaunch, UiConfig, new_control_token,
+    pick_free_port_excluding,
 };
 use sidecar::{ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar_blocking};
 use std::path::PathBuf;
@@ -31,6 +33,13 @@ pub(crate) fn quit(app: &AppHandle) {
         stop_sidecar_blocking(&app);
         app.exit(0);
     });
+}
+
+/// The host page reached the shell over IPC (it calls this once at boot): the smoke check's proof
+/// that the window loaded and its capability works.
+#[tauri::command]
+fn host_loaded(state: tauri::State<'_, smoke::HostLoaded>) {
+    state.0.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// "Try again" after the engine kept stopping or refused to start.
@@ -69,28 +78,35 @@ fn quit_app(app: AppHandle) {
 }
 
 pub fn run() {
-    // Plan 6: an installed app (a release build) serves the host itself over loopback, on a port
-    // picked free now — the server panics on a busy port — and runs the engine it bundles. In
-    // development Vite serves the host on 4200 and the engine comes from the repository.
+    // Plan 6: an installed app (a release build) serves its host itself over loopback (host_server.rs)
+    // and runs the engine it bundles. In development Vite serves the host on 4200 and the engine
+    // comes from the repository.
     let packaged = !tauri::is_dev();
-    let host_port = if packaged {
-        pick_free_port(DEFAULT_PORTS.host)
+    // Development finds the repository from the launch directory (src-tauri/) — before it changes.
+    let repo_dir = if packaged {
+        None
     } else {
-        DEFAULT_PORTS.host
+        std::env::current_dir()
+            .ok()
+            .and_then(|d| d.join("..").canonicalize().ok())
     };
-    let mut builder = tauri::Builder::default()
+    // A web page's file chooser opens in the process's working directory: start in the user's
+    // home, never the app's own folder (src-tauri/ in development, the AppImage's mount installed).
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let _ = std::env::set_current_dir(home);
+    }
+    // Linux: the desktop's own file dialog (xdg-desktop-portal) rather than GTK's built-in one;
+    // GTK falls back to its own when no portal runs. Set before GTK starts, while single-threaded.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GTK_USE_PORTAL").is_none() {
+        // SAFETY: no other thread exists yet.
+        unsafe { std::env::set_var("GTK_USE_PORTAL", "1") };
+    }
+    let builder = tauri::Builder::default()
         // First: a second launch hands over to this one and exits (spec §9 — one engine per store).
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }));
-    if packaged {
-        // Loopback only (Review Focus 3): never reachable from the network.
-        builder = builder.plugin(
-            tauri_plugin_localhost::Builder::new(host_port)
-                .host("127.0.0.1")
-                .build(),
-        );
-    }
     builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
@@ -98,18 +114,41 @@ pub fn run() {
         .manage(Mutex::new(SidecarState::default()))
         .manage(DataDir::default())
         .manage(tray::Tray::default())
+        .manage(smoke::HostLoaded::default())
         .invoke_handler(tauri::generate_handler![
             sidecar_info,
             open_logs,
             reveal_path,
             quit_app,
-            retry_engine
+            retry_engine,
+            host_loaded
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
             if let Err(e) = tray::build(&handle) {
                 eprintln!("[shell] no system tray ({e}); closing the window will quit the app");
             }
+            // The host page: bound before the window exists, so the window never loads a port
+            // someone else holds and a busy port is never a blank window (review I3). The port is
+            // remembered: the page's origin holds its storage (theme, layouts — review I4).
+            let host_port = if packaged {
+                let port_file = app.path().app_data_dir()?.join("host-port");
+                let (listener, port) = host_server::bind(
+                    host_server::read_port(&port_file),
+                    host_server::DEFAULT_HOST_PORT,
+                )?;
+                host_server::write_port(&port_file, port);
+                let assets = app.asset_resolver();
+                std::thread::spawn(move || host_server::serve(listener, port, assets));
+                // The window's permissions, for this exact origin only (never 127.0.0.1:*).
+                app.add_capability(host_server::loopback_capability(
+                    include_str!("../capabilities/default.json"),
+                    port,
+                ))?;
+                port
+            } else {
+                DEFAULT_PORTS.host
+            };
             // The window is built here rather than declared in tauri.conf.json so it can carry
             // the navigation guard (spec §5.8): external pages go to the system browser.
             let url = if packaged {
@@ -127,7 +166,7 @@ pub fn run() {
                 .min_inner_size(960.0, 640.0)
                 .disable_drag_drop_handler()
                 .on_navigation(move |url| {
-                    if navigation::is_internal(url, host_port) {
+                    if navigation::is_internal(url, host_port, packaged) {
                         return true;
                     }
                     match navigation::external_target(url) {
@@ -142,7 +181,9 @@ pub fn run() {
                 })
                 .build()?;
             // Dev loop (scripts/dev.mjs) already runs a sidecar: adopt it instead of spawning another.
-            if let (Ok(p), Ok(c), Ok(t)) = (
+            // Never in an installed app: its engine is its own (review minor 6).
+            if let (false, Ok(p), Ok(c), Ok(t)) = (
+                packaged,
                 std::env::var("KV_DEV_SIDECAR_PORT"),
                 std::env::var("KV_DEV_CONTROL_PORT"),
                 std::env::var("KV_DEV_CONTROL_TOKEN"),
@@ -170,18 +211,27 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?.join("vault");
             std::fs::create_dir_all(&data_dir)?;
             *app.state::<DataDir>().0.lock().unwrap() = Some(data_dir.clone());
-            let repo_dir = if packaged {
-                PathBuf::new()
-            } else {
-                std::env::current_dir()?.join("..").canonicalize()?
+            let repo_dir = match (&repo_dir, packaged) {
+                (_, true) => PathBuf::new(),
+                (Some(dir), false) => dir.clone(),
+                (None, false) => {
+                    return Err("could not find the repository from the launch directory".into());
+                }
             };
             let sidecar =
                 SidecarLaunch::for_build(packaged, &app.path().resource_dir()?, &repo_dir);
             let paths = AppPaths { data_dir, sidecar };
             let ports = Ports {
                 host: host_port,
-                sidecar: pick_free_port(DEFAULT_PORTS.sidecar),
-                control: pick_free_port(DEFAULT_PORTS.control),
+                // Picked apart from each other and from the host page (review minor 2).
+                sidecar: pick_free_port_excluding(DEFAULT_PORTS.sidecar, &[host_port]),
+                control: pick_free_port_excluding(
+                    DEFAULT_PORTS.control,
+                    &[
+                        host_port,
+                        pick_free_port_excluding(DEFAULT_PORTS.sidecar, &[host_port]),
+                    ],
+                ),
             };
             spawn_sidecar(
                 &handle,

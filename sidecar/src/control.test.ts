@@ -372,4 +372,20 @@ describe("settings changes reach the pipelines", () => {
     const base = await start();
     expect((await fetch(`${base}/backups/%E0%A4%A/restore`, { method: "POST", headers: { authorization: "Bearer secret" } })).status).toBe(400);
   });
+  it("answers only requests addressed to it (DNS rebinding): a foreign Host gets 403 even with the token", async () => {
+    const base = await start();
+    const port = Number(new URL(base).port);
+    const { request } = await import("node:http");
+    const status = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port, path: "/status", headers: { host, authorization: "Bearer secret" } }, (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    expect(await status(`127.0.0.1:${port}`)).toBe(200);
+    expect(await status(`evil.example:${port}`)).toBe(403);
+  });
 });

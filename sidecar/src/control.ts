@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { allowedHost } from "./loopback.js";
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, RemoteTooOldError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
@@ -171,6 +172,12 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 
 export function createControlServer(deps: ControlDeps) {
   const server = createServer(async (req, res) => {
+    // DNS rebinding: answer only requests addressed to this server (review I8).
+    const bound = server.address();
+    if (bound && typeof bound === "object" && !allowedHost(req.headers.host, bound.port)) {
+      res.writeHead(403, { "content-type": "text/plain" }).end("Forbidden");
+      return;
+    }
     const origin = req.headers.origin;
     const allowed = origin === deps.hostOrigin ? origin : undefined;
     if (req.method === "OPTIONS") {

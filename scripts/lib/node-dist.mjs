@@ -19,16 +19,13 @@ export function nodeAsset(version, triple) {
     archive: `${stem}.tar.xz`,
     binary: `${stem}/bin/node`,
     url: `https://nodejs.org/dist/v${version}/${stem}.tar.xz`,
-    shasums: `https://nodejs.org/dist/v${version}/SHASUMS256.txt`,
   };
 }
 
-/** Throws unless the file's SHA-256 is the one SHASUMS256.txt lists for its name. */
-export function verifySha256(file, shasumsText) {
+/** Throws unless the file's SHA-256 is the pinned one (scripts/node-version.mjs). */
+export function verifySha256(file, expected) {
   const name = basename(file);
-  const line = shasumsText.split("\n").find((l) => l.trim().endsWith(`  ${name}`));
-  if (!line) throw new Error(`${name} is not listed in SHASUMS256.txt.`);
-  const expected = line.trim().split(/\s+/)[0];
+  if (!expected) throw new Error(`${name}: no pinned checksum (add it to scripts/node-version.mjs).`);
   const actual = createHash("sha256").update(readFileSync(file)).digest("hex");
   if (actual !== expected) throw new Error(`${name}: checksum mismatch (expected ${expected}, got ${actual}).`);
 }

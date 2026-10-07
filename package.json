@@ -10,7 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:host": "bun run --cwd host dev",
     "dev:sidecar": "bun run --cwd sidecar dev",
-    "dev:shell": "bunx @tauri-apps/cli dev",
+    "dev:shell": "tauri dev",
     "build:host": "bun run --cwd host build",
     "build:sidecar": "bun run --cwd sidecar build",
     "tsc": "bun run --cwd sidecar tsc && bun run --cwd host tsc",
@@ -21,11 +21,13 @@
     "converter:check": "node scripts/sync-converter.mjs --check",
     "bundle:inputs": "node scripts/ensure-bundle-inputs.mjs",
     "versions:check": "node scripts/check-versions.mjs",
-    "build:app": "node scripts/check-versions.mjs && bun run build:host && bun run build:sidecar && node scripts/stage-sidecar.mjs && node scripts/fetch-node.mjs && node -e \"require('fs').rmSync('src-tauri/target/release/bundle', { recursive: true, force: true })\" && bunx @tauri-apps/cli build",
-    "smoke:app": "node scripts/smoke-app.mjs"
+    "build:app": "node scripts/check-versions.mjs && bun run build:host && bun run build:sidecar && node scripts/stage-sidecar.mjs && node scripts/fetch-node.mjs && node -e \"require('fs').rmSync('src-tauri/target/release/bundle', { recursive: true, force: true })\" && tauri build",
+    "smoke:app": "node scripts/smoke-app.mjs",
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "2.12.1",
     "typescript": "^5.9.3",
     "vitest": "4.1.1"
   }

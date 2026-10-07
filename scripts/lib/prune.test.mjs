@@ -33,6 +33,10 @@ const FILES = [
   "@datadog/pprof/prebuilds/darwin-arm64/dd_pprof.node.abi137.node",
   "@datadog/pprof/prebuilds/win32-x64/dd_pprof.node.abi137.node",
   "@datadog/pprof/out/src/index.js",
+  "utf-8-validate/prebuilds/darwin-x64+arm64/utf-8-validate.node",
+  "utf-8-validate/prebuilds/linux-x64/utf-8-validate.node",
+  "some-lib/prebuilds/README.txt",
+  "some-lib/prebuilds/generic/thing.js",
 ];
 function tree() {
   const nm = join(mkdtempSync(join(tmpdir(), "kv-prune-")), "node_modules");
@@ -73,5 +77,16 @@ describe("prune", () => {
     prune(mac, "aarch64-apple-darwin");
     expect(has(mac, "@datadog/pprof/prebuilds/darwin-arm64/dd_pprof.node.abi137.node")).toBe(true);
     expect(has(mac, "@datadog/pprof/prebuilds/linux-x64")).toBe(false);
+  });
+  it("keeps a universal prebuild that covers the target, and anything in prebuilds/ that is not named <os>-<cpu>", () => {
+    const mac = tree();
+    prune(mac, "aarch64-apple-darwin");
+    expect(has(mac, "utf-8-validate/prebuilds/darwin-x64+arm64/utf-8-validate.node")).toBe(true);
+    expect(has(mac, "utf-8-validate/prebuilds/linux-x64")).toBe(false);
+    const linux = tree();
+    prune(linux, "x86_64-unknown-linux-gnu");
+    expect(has(linux, "utf-8-validate/prebuilds/darwin-x64+arm64")).toBe(false);
+    expect(has(linux, "some-lib/prebuilds/README.txt")).toBe(true);
+    expect(has(linux, "some-lib/prebuilds/generic/thing.js")).toBe(true);
   });
 });

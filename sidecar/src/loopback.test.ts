@@ -1,5 +1,5 @@
 import { createServer, type AddressInfo } from "node:net";
-import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { bindLoopbackOnly } from "./loopback.js";
 
@@ -57,5 +57,44 @@ describe("bindLoopbackOnly", () => {
     const c = createHttpServer();
     servers.push(c);
     expect((await listening(c, engine)).address).not.toBe("127.0.0.1"); // original behaviour is back
+  });
+  it("answers only requests addressed to it on the engine's port — a foreign Host (DNS rebinding) gets 403 and never reaches the handler", async () => {
+    const port = await freePort();
+    restore = bindLoopbackOnly(port);
+    let handled = 0;
+    const server = createHttpServer((_req, res) => {
+      handled += 1;
+      res.end("ok");
+    });
+    servers.push(server);
+    await listening(server, port);
+    const get = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = httpRequest({ host: "127.0.0.1", port, path: "/graphql", headers: { host } }, (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    expect(await get(`127.0.0.1:${port}`)).toBe(200);
+    expect(await get(`localhost:${port}`)).toBe(200);
+    expect(await get(`evil.example:${port}`)).toBe(403);
+    expect(await get(`127.0.0.1:${port + 1}`)).toBe(403);
+    expect(handled).toBe(2);
+    // a WebSocket upgrade from a foreign Host is dropped
+    let upgraded = 0;
+    server.on("upgrade", (_req, socket) => {
+      upgraded += 1;
+      socket.destroy();
+    });
+    await new Promise<void>((resolve) => {
+      const req = httpRequest({ host: "127.0.0.1", port, path: "/graphql/subscriptions", headers: { host: `evil.example:${port}`, connection: "Upgrade", upgrade: "websocket" } });
+      req.on("error", () => resolve());
+      req.on("response", () => resolve());
+      req.on("upgrade", () => resolve());
+      req.end();
+    });
+    expect(upgraded).toBe(0);
   });
 });
