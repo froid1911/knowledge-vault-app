@@ -147,7 +147,10 @@ async function main(): Promise<void> {
       }
     }
   }
-  const workflowsKey = ensureSecret(join(cfg.dataDir, "secrets", "workflows.key"));
+  const engineSecrets = {
+    workflows: ensureSecret(join(cfg.dataDir, "secrets", "workflows.key")),
+    attachmentSigning: ensureSecret(join(cfg.dataDir, "secrets", "attachment-url-signing.key")),
+  };
   const configFile = fileURLToPath(new URL("../powerhouse.config.json", import.meta.url));
   // cwd = the data dir, so anything written relative to cwd (the Renown SDK's
   // `./.ph`, the registry cache) lands in app-data, never beside the code.
@@ -164,7 +167,7 @@ async function main(): Promise<void> {
   // Spec §4.2: the engine's environment is the matrix plus an OS/session allowlist. Nothing else is inherited.
   // A model server on the local network needs an egress entry (the runtime refuses private addresses otherwise).
   const lanModelServer = privateHostAllow(readSettings(cfg.dataDir).models.endpoint);
-  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, workflowsKey, appDid, lanModelServer ? [lanModelServer] : [])));
+  applyEnvironment(process.env, engineEnvironment(process.env, switchboardEnv(cfg, engineSecrets, appDid, lanModelServer ? [lanModelServer] : [])));
 
   // A missing package directory would degrade to an engine without the vault (the loader logs a miss and goes on); fail loudly instead.
   for (const dir of PACKAGE_DIRS) {

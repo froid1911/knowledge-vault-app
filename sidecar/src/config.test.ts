@@ -10,6 +10,8 @@ const base = {
   KV_APP_VERSION: "0.1.0",
 };
 
+const KEYS = { workflows: "wfkey", attachmentSigning: "a".repeat(64) };
+
 describe("readSidecarConfig", () => {
   it("reads the shell's variables and defaults protection to off", () => {
     const cfg = readSidecarConfig(base);
@@ -33,7 +35,10 @@ describe("readSidecarConfig", () => {
 
 describe("switchboardEnv", () => {
   it("builds the open-mode environment on the data dir, with telemetry unset", () => {
-    const env = switchboardEnv(readSidecarConfig(base), "wfkey");
+    const env = switchboardEnv(readSidecarConfig(base), KEYS);
+    // Attachment downloads are signed links; in production the Switchboard refuses them without a secret.
+    expect(env.PH_ATTACHMENT_URL_SIGNING_SECRET).toBe("a".repeat(64));
+    expect(env.PH_WORKFLOWS_SECRETS_MASTER_KEY).toBe("wfkey");
     expect(env.PORT).toBe("4301");
     expect(env.PH_REACTOR_DATABASE_URL).toBe("/tmp/Knowledge Vault äö/data/reactor");
     expect(env.DATABASE_URL).toBe("/tmp/Knowledge Vault äö/data/read-model");
@@ -55,15 +60,15 @@ describe("switchboardEnv", () => {
     // Open mode is declared to the vault package, with the engine's identity as the anonymous caller's.
     expect(env.KNOWLEDGE_VAULT_OPEN_MODE).toBe("1");
     expect(env.KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("local");
-    expect(switchboardEnv(readSidecarConfig(base), "wfkey", "did:key:z6MkEngine").KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("did:key:z6MkEngine");
+    expect(switchboardEnv(readSidecarConfig(base), KEYS, "did:key:z6MkEngine").KNOWLEDGE_VAULT_OPEN_MODE_ADDRESS).toBe("did:key:z6MkEngine");
   });
   it("sets no exemption in open mode — the reactor refuses one while the floor is off", () => {
-    expect("REQUIRE_AUTHENTICATED_CALLER_EXEMPT_PATHS" in switchboardEnv(readSidecarConfig(base), "wfkey")).toBe(false);
+    expect("REQUIRE_AUTHENTICATED_CALLER_EXEMPT_PATHS" in switchboardEnv(readSidecarConfig(base), KEYS)).toBe(false);
   });
   it("turns the four auth flags on with the admin address in protected mode", () => {
     const env = switchboardEnv(
       readSidecarConfig({ ...base, KV_PROTECTED: "1", KV_ADMIN_ADDRESS: "0xabc" }),
-      "wfkey",
+      KEYS,
     );
     expect(env.AUTH_ENABLED).toBe("true");
     expect(env.REQUIRE_AUTHENTICATED_CALLER).toBe("true");
@@ -83,7 +88,7 @@ describe("switchboardEnv", () => {
 
 describe("switchboardEnv — egress", () => {
   it("allows loopback plus whatever the model endpoint needs", () => {
-    expect(switchboardEnv(readSidecarConfig(base), "wfkey", "local", ["192.168.1.20/32"]).PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128,192.168.1.20/32");
-    expect(switchboardEnv(readSidecarConfig(base), "wfkey").PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128");
+    expect(switchboardEnv(readSidecarConfig(base), KEYS, "local", ["192.168.1.20/32"]).PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128,192.168.1.20/32");
+    expect(switchboardEnv(readSidecarConfig(base), KEYS).PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128");
   });
 });

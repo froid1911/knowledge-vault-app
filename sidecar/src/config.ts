@@ -44,8 +44,11 @@ export function readSidecarConfig(env: Env): SidecarConfig {
   };
 }
 
+/** The engine's own secrets, each created once in `secrets/` (0600) and kept across starts. */
+export type EngineSecrets = { workflows: string; attachmentSigning: string };
+
 /** Spec §4.2: the Switchboard matrix. environment.ts decides what else the engine inherits — an OS/session allowlist, nothing more. */
-export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, openModeAddress = "local", egressAllow: readonly string[] = []): Record<string, string> {
+export function switchboardEnv(cfg: SidecarConfig, secrets: EngineSecrets, openModeAddress = "local", egressAllow: readonly string[] = []): Record<string, string> {
   const origin = `http://127.0.0.1:${cfg.port}`;
   const flag = cfg.protected ? "true" : "false";
   return {
@@ -64,7 +67,11 @@ export function switchboardEnv(cfg: SidecarConfig, workflowsMasterKey: string, o
     DOCUMENT_PERMISSIONS_ENABLED: flag,
     ADMINS: cfg.protected ? (cfg.adminAddress ?? "") : "",
     PH_WORKFLOWS_ENABLED: "1",
-    PH_WORKFLOWS_SECRETS_MASTER_KEY: workflowsMasterKey,
+    PH_WORKFLOWS_SECRETS_MASTER_KEY: secrets.workflows,
+    // Attachment downloads (a source's original file, its figures) are short-lived signed links. In
+    // production the Switchboard refuses every download without this secret; it is kept across
+    // starts so a link handed out just before a restart still works until it expires.
+    PH_ATTACHMENT_URL_SIGNING_SECRET: secrets.attachmentSigning,
     // Loopback always (the engine itself, a local model server); plus the saved model endpoint when it is on the local network.
     PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES: ["127.0.0.1/32", "::1/128", ...egressAllow].join(","),
     SWITCHBOARD_APP_NAME: "desktop-knowledge-vault",
