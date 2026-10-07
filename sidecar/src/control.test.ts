@@ -388,4 +388,20 @@ describe("settings changes reach the pipelines", () => {
     expect(await status(`127.0.0.1:${port}`)).toBe(200);
     expect(await status(`evil.example:${port}`)).toBe(403);
   });
+  it("runs a browser sign-in's return leg: start with the token, the callback without it, the code collected once", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret" };
+    const started = (await (await fetch(`${base}/oauth/start`, { method: "POST", headers: h })).json()) as { nonce: string; callbackUrl: string };
+    const port = new URL(base).port;
+    expect(started.callbackUrl).toBe(`http://localhost:${port}/oauth/callback/${started.nonce}`);
+    expect((await fetch(`${base}/oauth/result/${started.nonce}`, { headers: h })).status).toBe(202);
+    const page = await fetch(`${base}/oauth/callback/${started.nonce}?code=the-code`); // the system browser: no token
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toMatch(/text\/html/);
+    expect(await page.text()).toMatch(/return to Knowledge Vault/i);
+    expect(await (await fetch(`${base}/oauth/result/${started.nonce}`, { headers: h })).json()).toEqual({ code: "the-code" });
+    expect((await fetch(`${base}/oauth/result/${started.nonce}`, { headers: h })).status).toBe(404);
+    expect((await fetch(`${base}/oauth/callback/unknown?code=x`)).status).toBe(404);
+    expect((await fetch(`${base}/oauth/start`, { method: "POST" })).status).toBe(401);
+  });
 });

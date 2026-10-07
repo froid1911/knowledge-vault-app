@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { allowedHost } from "./loopback.js";
+import { callbackPage, createOAuthStore } from "./oauth.js";
 import type { AccessToken, IdentityStatus } from "./identity.js";
 import { RemoteAccessError, RemoteAuthError, RemoteInputError, RemoteNotFoundError, RemoteTooOldError, type RemoteCheck, type RemoteVault } from "./remote.js";
 import { ConverterBusyError, ConverterInputError, type ConverterStatus } from "./converter.js";
@@ -171,6 +172,8 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 export function createControlServer(deps: ControlDeps) {
+  // Sign-ins run in the system browser return here (oauth.ts).
+  const oauth = createOAuthStore();
   const server = createServer(async (req, res) => {
     // DNS rebinding: answer only requests addressed to this server (review I8).
     const bound = server.address();
@@ -191,9 +194,32 @@ export function createControlServer(deps: ControlDeps) {
       res.end();
       return;
     }
+    // The system browser's return from a sign-in carries no token: it is the one route that needs none,
+    // and it only completes a sign-in the window started (a 48-hex nonce, once, within ten minutes).
+    const callback = /^\/oauth\/callback\/([^/]+)$/.exec(new URL(req.url ?? "/", "http://control").pathname);
+    if (callback && req.method === "GET") {
+      const code = new URL(req.url ?? "/", "http://control").searchParams.get("code");
+      const ok = !!code && oauth.receive(decodeURIComponent(callback[1]!), code);
+      res.writeHead(ok ? 200 : 404, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(callbackPage(ok));
+      return;
+    }
     if (!tokenMatches(req.headers.authorization, deps.token)) return send(res, 401, { error: "Unauthorized" }, allowed);
     const url = new URL(req.url ?? "/", "http://control");
     try {
+      if (req.method === "POST" && url.pathname === "/oauth/start") {
+        const { nonce } = oauth.start();
+        const bound = server.address();
+        const port = typeof bound === "object" && bound ? bound.port : 0;
+        // localhost, not 127.0.0.1: providers accept localhost callbacks for local apps; the Host check allows both.
+        return send(res, 200, { nonce, callbackUrl: `http://localhost:${port}/oauth/callback/${nonce}` }, allowed);
+      }
+      const oauthResult = /^\/oauth\/result\/([^/]+)$/.exec(url.pathname);
+      if (oauthResult && req.method === "GET") {
+        const r = oauth.take(decodePart(oauthResult[1]!));
+        if (r.state === "pending") return send(res, 202, { pending: true }, allowed);
+        if (r.state === "unknown") return send(res, 404, { error: "No such sign-in, or it expired." }, allowed);
+        return send(res, 200, { code: r.code }, allowed);
+      }
       if (req.method === "GET" && url.pathname === "/status") return send(res, 200, deps.status(), allowed);
       if (req.method === "GET" && url.pathname === "/vaults") return send(res, 200, { vaults: await deps.listVaults() }, allowed);
       if (req.method === "POST" && url.pathname === "/vaults") {

@@ -14,12 +14,21 @@ export type HostExtras = {
   identity?: HostIdentity;
 };
 
+/** Runs a sign-in in the system browser and resolves with the code (the vault chat's OpenRouter connect). */
+export type ExternalSignIn = (buildUrl: (callbackUrl: string) => string) => Promise<string>;
+let externalSignIn: ExternalSignIn | undefined;
+/** Set once at boot; every declaration carries it, whichever screen declares. */
+export function setExternalSignIn(fn: ExternalSignIn | undefined): void {
+  externalSignIn = fn;
+}
+
 export function declareDesktopHost(switchboardOrigin: string, extras: HostExtras = {}): void {
   (globalThis as Record<string, unknown>)[HOST_SLOT] = {
     kind: "desktop",
     switchboardOrigin,
     ...(extras.bearer ? { bearer: extras.bearer } : {}),
     ...(extras.identity ? { identity: { ...extras.identity } } : {}),
+    ...(externalSignIn ? { externalSignIn } : {}),
   };
   if (typeof globalThis.dispatchEvent === "function" && typeof Event === "function") globalThis.dispatchEvent(new Event(HOST_CHANGED_EVENT));
 }

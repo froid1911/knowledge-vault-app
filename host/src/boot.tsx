@@ -1,6 +1,7 @@
 import { initTheme, useTheme, type GraphQLReactorClient } from "@powerhousedao/reactor-browser";
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { declareDesktopHost } from "./bootstrap.js";
+import { declareDesktopHost, setExternalSignIn } from "./bootstrap.js";
+import { externalSignIn } from "./api/oauth.js";
 import { installExternalLinksForTauri } from "./links.js";
 import { localHostExtras } from "./local-engine.js";
 import { fetchStatus } from "./vaults.js";
@@ -31,6 +32,8 @@ export const loadApp: AppLoader = (info) => {
   loading ??= (async () => {
     const status = await fetchStatus(info).catch(() => undefined);
     const extras = localHostExtras(status?.protected === true, info);
+    // The vault chat's OpenRouter sign-in returns through the engine, not to this window (api/oauth.ts).
+    setExternalSignIn((buildUrl) => externalSignIn(info, buildUrl));
     declareDesktopHost(info.origin, extras);
     const [{ App, LIBS }, { installReactor }] = await Promise.all([import("./App.js"), import("./reactor.js")]);
     return { App, client: installReactor(info, LIBS, extras.bearer), ...(extras.bearer ? { bearer: extras.bearer } : {}) };
