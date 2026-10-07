@@ -33,7 +33,14 @@ function namespaceOf(module: DocumentModelModule): string | undefined {
  * the document, nothing is constructed in the page and sent. `reactorModule` stays
  * empty, so sync and registry lookups keep seeing "no local reactor".
  */
-export function remoteClientModule(client: ModuleClient, libs: readonly DocumentModelLib[]) {
+export function remoteClientModule(
+  client: ModuleClient,
+  libs: readonly DocumentModelLib[],
+  /** Re-reads a document into the page's cache (the drive after a write): the engine changed it, the cache does not know. */
+  refresh: (id: string) => Promise<unknown> = async () => undefined,
+) {
+  // A write has landed whatever the refresh does; the next change event catches the cache up.
+  const refreshDrive = (driveId: string) => refresh(driveId).catch(() => undefined);
   const modules = (): DocumentModelModule[] => libs.flatMap((lib) => [...lib.documentModels]) as DocumentModelModule[];
   const moduleFor = (type: string) => modules().find((m) => m.documentModel.global.id === type);
 
@@ -91,6 +98,8 @@ export function remoteClientModule(client: ModuleClient, libs: readonly Document
             { drive: driveId, input: { srcFolder: id, targetParentFolder: parentFolder } },
           );
         }
+        // Before returning: Studio selects the new node next, which needs it in the cached drive.
+        await refreshDrive(driveId);
         return client.get(id);
       },
       async removeNode(driveId: string, nodeId: string) {
@@ -104,9 +113,11 @@ export function remoteClientModule(client: ModuleClient, libs: readonly Document
              }`,
             { drive: driveId, input: { id: nodeId } },
           );
+          await refreshDrive(driveId);
           return;
         }
         await client.deleteDocument(nodeId);
+        await refreshDrive(driveId);
       },
     },
   };

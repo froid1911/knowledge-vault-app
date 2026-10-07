@@ -5,12 +5,14 @@ import {
   setDefaultDrivesUrl,
   setDocumentCache,
   setReactorClient,
+  setPHToast,
   setReactorClientModule,
   setSwitchboardUrl,
   setVetraPackageManager,
   StaticPackageManager,
 } from "@powerhousedao/reactor-browser";
 import type { DocumentModelLib } from "document-model";
+import { hostToasts } from "./components/HostToasts.js";
 import { remoteClientModule } from "./remote-client-module.js";
 import type { SidecarInfo } from "./sidecar.js";
 
@@ -48,11 +50,12 @@ export function clientFor(target: Target): GraphQLReactorClient {
 export function activate(target: Target): GraphQLReactorClient {
   const client = clientFor(target);
   setReactorClient(client);
-  setDocumentCache(new DocumentCache(client));
+  const cache = new DocumentCache(client);
+  setDocumentCache(cache);
   // reactor-browser's drive helpers (Workflow Studio's create and delete) call
   // Connect's in-browser reactor; this answers them over the engine's GraphQL API.
   // Its reactorModule stays empty, so sync and registry lookups still see none.
-  setReactorClientModule(remoteClientModule(client, libs) as unknown as Parameters<typeof setReactorClientModule>[0]);
+  setReactorClientModule(remoteClientModule(client, libs, (id) => cache.get(id, true)) as unknown as Parameters<typeof setReactorClientModule>[0]);
   setSwitchboardUrl(`${target.origin}/graphql`);
   // Workflow Studio derives its runtime endpoint from the drive's sync channel or, failing
   // that, from the default drives URL — never from the Switchboard URL. There is no sync
@@ -70,5 +73,7 @@ export function installReactor(info: SidecarInfo, packages: readonly DocumentMod
   ensurePHEventHandlers();
   libs = packages;
   setVetraPackageManager(new StaticPackageManager(packages));
+  // Mounted apps report through usePHToast(); Connect provides that service, here the host does.
+  setPHToast(hostToasts.toast);
   return activate({ origin: info.origin, ...(tokenProvider ? { tokenProvider } : {}) });
 }

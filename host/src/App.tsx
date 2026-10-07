@@ -1,4 +1,7 @@
-import { RenownProvider, type GraphQLReactorClient } from "@powerhousedao/reactor-browser";
+import { setRenown, type GraphQLReactorClient } from "@powerhousedao/reactor-browser";
+import { HostModals } from "./components/HostModals.js";
+import { HostToasts } from "./components/HostToasts.js";
+import { desktopRenown } from "./shell/desktop-renown.js";
 import * as knowledgeNote from "@powerhousedao/knowledge-note";
 import * as workflow from "@powerhousedao/workflow";
 import type { DocumentModelLib } from "document-model";
@@ -53,6 +56,12 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
     declareDesktopHost(info.origin, { identity: hostIdentity, ...(bearer ? { bearer } : {}) });
   }, [info.origin, hostIdentity, inRemote, bearer]);
 
+  // Apps that read Connect's ambient Renown session (Workflow Studio's runtime calls take
+  // their bearer from it) see the signed-in user, backed by the engine's sign-in.
+  useEffect(() => {
+    setRenown(hostIdentity ? (desktopRenown(hostIdentity, bearer) as unknown as Parameters<typeof setRenown>[0]) : undefined);
+  }, [hostIdentity, bearer]);
+
   // Shortcuts only on the shell's own screens: a workspace app owns its keys.
   useEffect(() => {
     if (inWorkspace) return;
@@ -99,11 +108,13 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
       );
   }
   return (
-    <RenownProvider appName="desktop-knowledge-vault" url="https://www.renown.id" switchboardUrl={info.origin}>
+    <>
       <EngineBanner health={health} />
       {screen}
+      <HostModals />
+      <HostToasts />
       <DownloadNotice />
-    </RenownProvider>
+    </>
   );
 }
 

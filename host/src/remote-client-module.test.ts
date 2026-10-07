@@ -76,6 +76,26 @@ describe("remoteClientModule", () => {
     expect(await m.client.getCreateProtocolVersions()).toEqual({});
   });
 
+  it("refreshes the drive after a create, a move and a delete, before returning", async () => {
+    const files = fakeClient([{ id: "doc-1", kind: "file" }]);
+    const refreshed: string[] = [];
+    const m = remoteClientModule(files.client, libs, async (id) => {
+      refreshed.push(id);
+    });
+    await m.client.drives.addFile("drive-1", { header: { documentType: "powerhouse/workflow", name: "W", meta: {} } } as never, "folder-9");
+    expect(refreshed).toEqual(["drive-1"]);
+    await m.client.drives.removeNode("drive-1", "doc-1");
+    expect(refreshed).toEqual(["drive-1", "drive-1"]);
+  });
+
+  it("does not fail a write because the refresh failed", async () => {
+    const m = remoteClientModule(fakeClient().client, libs, async () => {
+      throw new Error("offline");
+    });
+    const made = await m.client.drives.addFile("drive-1", { header: { documentType: "powerhouse/workflow", name: "W", meta: {} } } as never, undefined);
+    expect(made.header.id).toBe("new-typed");
+  });
+
   it("leaves the full-reactor parts empty, so sync and registry lookups stay off", () => {
     const m = remoteClientModule(fakeClient().client, libs) as Record<string, unknown>;
     expect(m.reactorModule).toBeUndefined();

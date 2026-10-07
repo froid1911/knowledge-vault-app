@@ -283,3 +283,10 @@ body, #root { margin: 0; min-height: 100vh; }
 /* The page's downloads (an original source, a document export) — where they went. */
 .kv-download-notice { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--bai-border); border-radius: 10px; background: var(--bai-overlay); color: var(--bai-text); font: 14px/1.4 var(--kv-font-ui); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); }
 .kv-download-notice[data-ok="false"] { border-color: var(--bai-danger); }
+
+/* Toasts that mounted apps raise through usePHToast() (Connect's toast service). */
+.kv-toasts { position: fixed; right: 20px; bottom: 76px; z-index: 61; display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+.kv-toast { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--bai-border); border-radius: 10px; background: var(--bai-overlay); color: var(--bai-text); font: 14px/1.4 var(--kv-font-ui); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); }
+.kv-toast[data-error="true"] { border-color: var(--bai-danger); }
+.kv-toast > span { flex: 1; overflow-wrap: anywhere; }
+.kv-toast-close { border: 0; background: none; color: var(--bai-text-muted, inherit); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
