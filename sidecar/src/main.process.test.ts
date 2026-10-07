@@ -85,13 +85,19 @@ describe("the engine binary: store guard and lock", () => {
     expect(String(fatal!.message)).toContain(RUNNING_STACK);
   }, 30_000);
 
-  it("refuses a store another live engine holds (exit 78, store-in-use)", async () => {
+  it("refuses a store another running engine holds (exit 78, store-in-use)", async () => {
     const d = store({ version: 1 });
-    writeFileSync(join(d, "engine.lock"), JSON.stringify({ pid: process.pid, startedAt: "x" })); // this test's own process: alive
-    const e = await startEngine(d);
-    expect(await e.exit).toBe(78);
-    expect((await e.events).find((x) => x.event === "fatal")).toMatchObject({ reason: "store-in-use" });
-  }, 30_000);
+    const first = await startEngine(d);
+    await first.waitFor("ready", 55_000);
+    try {
+      const second = await startEngine(d);
+      expect(await second.exit).toBe(78);
+      expect((await second.events).find((x) => x.event === "fatal")).toMatchObject({ reason: "store-in-use" });
+    } finally {
+      first.proc.stdin!.end();
+      await first.exit;
+    }
+  }, 90_000);
 
   it("backs up a store written by an older stack before opening it, then records the running stack (Review Focus 3)", async () => {
     const d = store({ version: 1, stackVersion: "6.2.3-dev.1" });

@@ -368,4 +368,8 @@ describe("settings changes reach the pipelines", () => {
     expect(await ok.json()).toEqual({ export: { path: "/data/vault/exports/research-2026-10-07T12-00-00Z", documents: 2, bytes: 4096 } });
     expect((await fetch(`${base}/vaults/nope/export`, { headers: h })).status).toBe(404);
   });
+  it("answers 400, not 500, for a malformed name in the address", async () => {
+    const base = await start();
+    expect((await fetch(`${base}/backups/%E0%A4%A/restore`, { method: "POST", headers: { authorization: "Bearer secret" } })).status).toBe(400);
+  });
 });

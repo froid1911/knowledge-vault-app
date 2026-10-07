@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createBackup, deleteAllData, human, restoreBackup, type BackupDeps } from "./backups.js";
+import { createBackup, deleteAllData, human, pruneBackups, restoreBackup, type BackupDeps } from "./backups.js";
+import { writeFileAtomic } from "./process-identity.js";
 
 /**
  * Spec §9: backups, restores and the delete-all happen with the store closed.
@@ -16,7 +17,7 @@ const lastPath = (dataDir: string) => join(dataDir, "last-action.json");
 
 export function writePending(dataDir: string, action: PendingAction): void {
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(pendingPath(dataDir), JSON.stringify(action) + "\n");
+  writeFileAtomic(pendingPath(dataDir), JSON.stringify(action) + "\n");
 }
 
 /** Reads and removes the pending action, so an action that crashes the start is never retried in a loop. */
@@ -41,6 +42,12 @@ export function isPendingAction(v: unknown): v is PendingAction {
   return false;
 }
 
+/** For results that did not come from a pending action (an interrupted restore rolled back at start). */
+export function writeLastAction(dataDir: string, result: ActionResult): void {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileAtomic(lastPath(dataDir), JSON.stringify(result, null, 2) + "\n");
+}
+
 export function readLastAction(dataDir: string): ActionResult | undefined {
   try {
     return JSON.parse(readFileSync(lastPath(dataDir), "utf8")) as ActionResult;
@@ -50,15 +57,18 @@ export function readLastAction(dataDir: string): ActionResult | undefined {
 }
 
 /** Runs the action; never throws — a refused backup is a result the host shows, and the engine still starts. */
-export function runPendingAction(dataDir: string, action: PendingAction, stackVersion: string, deps: BackupDeps = {}): ActionResult {
+/** `stackVersion` is this app's (a restore refuses a newer backup); a backup is labelled with `deps.storeStack`, the stack that wrote the store, when known. */
+export function runPendingAction(dataDir: string, action: PendingAction, stackVersion: string, deps: BackupDeps & { storeStack?: string } = {}): ActionResult {
   const now = deps.now ?? (() => new Date().toISOString());
   let result: ActionResult;
   try {
     if (action.action === "backup") {
-      const b = createBackup(dataDir, stackVersion, deps);
-      result = { action: "backup", ok: true, detail: `Backed up ${human(b.bytes)} as ${b.name}.`, at: now() };
+      const b = createBackup(dataDir, deps.storeStack ?? stackVersion, deps);
+      const pruned = pruneBackups(dataDir);
+      result = { action: "backup", ok: true, detail: `Backed up ${human(b.bytes)} as ${b.name}.${pruned.length ? ` Removed ${pruned.length} older backup${pruned.length === 1 ? "" : "s"}.` : ""}`, at: now() };
     } else if (action.action === "restore") {
       const r = restoreBackup(dataDir, action.name, stackVersion, deps);
+      pruneBackups(dataDir);
       result = { action: "restore", ok: true, detail: `Restored ${action.name}; what was there is kept as ${r.preRestore}.`, at: now() };
     } else {
       deleteAllData(dataDir, { includeBackups: action.includeBackups });
@@ -68,6 +78,6 @@ export function runPendingAction(dataDir: string, action: PendingAction, stackVe
     result = { action: action.action, ok: false, detail: error instanceof Error ? error.message : String(error), at: now() };
   }
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(lastPath(dataDir), JSON.stringify(result, null, 2) + "\n");
+  writeFileAtomic(lastPath(dataDir), JSON.stringify(result, null, 2) + "\n");
   return result;
 }

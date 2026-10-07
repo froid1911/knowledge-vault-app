@@ -85,6 +85,15 @@ export type ControlDeps = {
   debugRoutes?: boolean;
 };
 
+/** A path segment; a malformed escape is the caller's mistake (400), not the server's (500). */
+function decodePart(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    throw new BadRequestError("The address has a malformed name in it.");
+  }
+}
+
 function settingsPatch(body: Record<string, unknown>): SettingsPatch {
   const patch: SettingsPatch = {};
   const models = body.models;
@@ -196,20 +205,20 @@ export function createControlServer(deps: ControlDeps) {
       }
       const pipelineOf = url.pathname.match(/^\/vaults\/([^/]+)\/pipeline$/);
       if (pipelineOf && req.method === "POST") {
-        const result = await deps.pipelines.ensure(decodeURIComponent(pipelineOf[1]!));
+        const result = await deps.pipelines.ensure(decodePart(pipelineOf[1]!));
         if (result.state === "unconfigured") return send(res, 409, { error: "Set up a model first — Settings › Models." }, allowed);
         return send(res, 200, { pipeline: result }, allowed);
       }
-      if (pipelineOf && req.method === "GET") return send(res, 200, { pipeline: await deps.pipelines.status(decodeURIComponent(pipelineOf[1]!)) }, allowed);
+      if (pipelineOf && req.method === "GET") return send(res, 200, { pipeline: await deps.pipelines.status(decodePart(pipelineOf[1]!)) }, allowed);
       const vault = url.pathname.match(/^\/vaults\/([^/]+)$/);
       if (vault && req.method === "PATCH") {
         const body = await readJson(req);
         const name = typeof body.name === "string" ? body.name.trim() : "";
         if (!name) return send(res, 400, { error: "A vault needs a name." }, allowed);
-        return send(res, 200, { vault: await deps.renameVault(decodeURIComponent(vault[1]!), name) }, allowed);
+        return send(res, 200, { vault: await deps.renameVault(decodePart(vault[1]!), name) }, allowed);
       }
       if (vault && req.method === "DELETE") {
-        const id = decodeURIComponent(vault[1]!);
+        const id = decodePart(vault[1]!);
         await deps.pipelines.remove(id).catch(() => undefined); // its workflow, connection and secrets go with it
         await deps.deleteVault(id);
         return send(res, 200, { deleted: id }, allowed);
@@ -279,13 +288,13 @@ export function createControlServer(deps: ControlDeps) {
       }
       const remote = url.pathname.match(/^\/remote-vaults\/([^/]+)$/);
       if (remote && req.method === "DELETE") {
-        const id = decodeURIComponent(remote[1]!);
+        const id = decodePart(remote[1]!);
         deps.remote.remove(id);
         return send(res, 200, { removed: id }, allowed);
       }
       const exportMatch = url.pathname.match(/^\/vaults\/([^/]+)\/export$/);
       if (exportMatch && req.method === "GET") {
-        return send(res, 200, { export: await deps.exportVault(decodeURIComponent(exportMatch[1]!)) }, allowed);
+        return send(res, 200, { export: await deps.exportVault(decodePart(exportMatch[1]!)) }, allowed);
       }
       // Plan 5 — maintenance. Every action runs at the next start, with the store closed.
       if (req.method === "GET" && url.pathname === "/backups") {
@@ -297,7 +306,7 @@ export function createControlServer(deps: ControlDeps) {
       }
       const restore = url.pathname.match(/^\/backups\/([^/]+)\/restore$/);
       if (restore && req.method === "POST") {
-        const name = decodeURIComponent(restore[1]!);
+        const name = decodePart(restore[1]!);
         if (!deps.maintenance.listBackups().some((b) => b.name === name)) return send(res, 404, { error: `No backup named ${name}.` }, allowed);
         deps.maintenance.schedule({ action: "restore", name });
         return send(res, 202, { restarting: true }, allowed);
@@ -347,7 +356,7 @@ export function createControlServer(deps: ControlDeps) {
             resolve(typeof addr === "object" && addr ? addr.port : p);
           });
         });
-      const candidates = port === 0 ? [0] : Array.from({ length: 21 }, (_, i) => port + i);
+      const candidates = port === 0 ? [0] : Array.from({ length: 21 }, (_, i) => port + i).filter((p) => p <= 65535);
       let lastError: unknown;
       for (const p of candidates) {
         try {

@@ -35,4 +35,10 @@ describe("pending actions", () => {
     expect(r.ok).toBe(false);
     expect(r.detail).toMatch(/Not enough free space/);
   });
+  it("labels a requested backup with the stack that wrote the store, and prunes old ones", () => {
+    const d = store();
+    const r = runPendingAction(d, { action: "backup" }, "6.2.3-dev.44", { ...plenty, storeStack: "6.2.3-dev.40" });
+    expect(r.ok).toBe(true);
+    expect(listBackups(d)[0]!.stackVersion).toBe("6.2.3-dev.40");
+  });
 });

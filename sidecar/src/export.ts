@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sizeOf, stamp } from "./backups.js";
 import { gql } from "./reactor-gql.js";
@@ -17,7 +17,7 @@ import { gql } from "./reactor-gql.js";
  *   auth.json         { id: the document's access policy }
  *   llms-full.txt     the vault's REST rendering, when the engine serves it
  */
-export type ExportResult = { path: string; documents: number; bytes: number };
+export type ExportResult = { path: string; documents: number; bytes: number; /** Documents that could not be read (the export goes on without them, as download.py does). */ failed: string[] };
 export class DriveNotFoundError extends Error {}
 
 type Node = { id: string; kind?: string; name?: string; documentType?: string; parentFolder?: string | null };
@@ -107,7 +107,12 @@ export async function exportVault(opts: { origin: string; driveId: string; dataD
   const folders = nodes.filter((n) => n.kind === "folder");
   const files = nodes.filter((n) => n.kind === "file");
   const slug = drive.slug || opts.driveId;
-  const path = join(opts.dataDir, "exports", `${slug}-${stamp(at)}`);
+  // A folder name every filesystem accepts; the export is written beside it and renamed in only when complete.
+  const safe = slug.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").slice(0, 80) || "vault";
+  const finalPath = join(opts.dataDir, "exports", `${safe}-${stamp(at)}`);
+  const path = `${finalPath}.partial`;
+  rmSync(path, { recursive: true, force: true });
+  const writeExport = async (): Promise<ExportResult> => {
   mkdirSync(join(path, "states"), { recursive: true });
   mkdirSync(join(path, "ops"), { recursive: true });
   writeJson(join(path, "drive-info.json"), { id: drive.id, slug, name: drive.name });
@@ -121,8 +126,16 @@ export async function exportVault(opts: { origin: string; driveId: string; dataD
   const titleById = new Map(files.map((f) => [f.id, f.name ?? ""]));
 
   const auth: Record<string, unknown> = {};
+  const failed: string[] = [];
   for (const f of files) {
-    const doc = await fetchDocument(opts.origin, f.id, fetchImpl);
+    let doc: Awaited<ReturnType<typeof fetchDocument>>;
+    try {
+      doc = await fetchDocument(opts.origin, f.id, fetchImpl);
+    } catch (error) {
+      console.warn(`[export] could not read ${f.id} (${f.name ?? ""}): ${error instanceof Error ? error.message : String(error)}`);
+      failed.push(f.id);
+      continue;
+    }
     attachRelationships(f.id, f.documentType ?? "unknown", doc.global, bySource, titleById, at);
     writeJson(join(path, "states", `${f.id}.json`), doc.global);
     writeJson(join(path, "ops", `${f.id}.json`), doc.ops);
@@ -141,7 +154,16 @@ export async function exportVault(opts: { origin: string; driveId: string; dataD
   writeJson(join(path, "manifest.json"), {
     source: { endpoint: `${opts.origin}/graphql`, drive: slug, driveId: drive.id, driveName: drive.name, relationships: "graph", downloadedAt: at },
     folders: folders.map((f) => ({ id: f.id, name: f.name, parentFolder: f.parentFolder ?? null })),
-    documents: files.map((f) => ({ id: f.id, name: f.name, type: f.documentType ?? "unknown", parentFolder: f.parentFolder ?? null })),
+    documents: files.filter((f) => !failed.includes(f.id)).map((f) => ({ id: f.id, name: f.name, type: f.documentType ?? "unknown", parentFolder: f.parentFolder ?? null })),
+    ...(failed.length ? { unreadable: failed } : {}),
   });
-  return { path, documents: files.length, bytes: sizeOf(path) };
+  renameSync(path, finalPath);
+  return { path: finalPath, documents: files.length - failed.length, bytes: sizeOf(finalPath), failed };
+  };
+  try {
+    return await writeExport();
+  } catch (error) {
+    rmSync(path, { recursive: true, force: true });
+    throw error;
+  }
 }

@@ -1,9 +1,21 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeFileAtomic } from "./process-identity.js";
+import { readConfig, writeConfig } from "./settings.js";
 import { compareVersions } from "./version.js";
 
-/** Spec §9: what a backup holds — the store, its records, never the secrets. */
-export const BACKUP_PARTS = ["reactor", "read-model", "attachments", "config.json", "pipelines.json"] as const;
+/** Spec §9: what a restore puts back — the store and its records. */
+export const STORE_PARTS = ["reactor", "read-model", "attachments", "pipelines.json"] as const;
+/** What a backup holds: the store, its records and the settings of the day (for reference) — never the secrets. */
+export const BACKUP_PARTS = [...STORE_PARTS, "config.json"] as const;
+/** A backup without these is not a store. */
+const REQUIRED_PARTS = ["reactor", "read-model"] as const;
+/** Retention: the newest backups and pre-restore copies kept; older ones go after each new one. */
+export const KEEP_BACKUPS = 10;
+export const KEEP_PRE_RESTORE = 3;
+/** `2026-10-07T12-00-00Z-<stack>` — what createBackup names a backup; anything else in backups/ is not ours to clean. */
+const DATED = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-/;
+
 export type BackupInfo = { name: string; path: string; bytes: number; stackVersion: string; createdAt: string };
 
 export class NotEnoughSpaceError extends Error {
@@ -11,13 +23,20 @@ export class NotEnoughSpaceError extends Error {
     public readonly needed: number,
     public readonly available: number,
   ) {
-    super(`Not enough free space for a backup: ${human(needed)} needed, ${human(available)} available.`);
+    super(`Not enough free space: ${human(needed)} needed, ${human(available)} available.`);
   }
 }
 export class BackupTooNewError extends Error {}
 export class BackupNotFoundError extends Error {}
+export class BackupIncompleteError extends Error {}
 
-export type BackupDeps = { now?: () => string; statfs?: (dir: string) => { available: number } };
+export type BackupDeps = {
+  now?: () => string;
+  statfs?: (dir: string) => { available: number };
+  /** For tests: the copy, and a hook after each part is swapped (to simulate a crash mid-restore). */
+  copy?: (from: string, to: string) => void;
+  afterMove?: (part: string) => void;
+};
 
 const backupsDir = (dataDir: string) => join(dataDir, "backups");
 /** `2026-10-07T12:00:00.000Z` → `2026-10-07T12-00-00Z`: sortable, and legal in a file name everywhere. */
@@ -47,20 +66,29 @@ export function createBackup(dataDir: string, stackVersion: string, deps: Backup
   const name = `${stamp(createdAt)}-${stackVersion}`;
   const path = join(backupsDir(dataDir), name);
   mkdirSync(path, { recursive: true });
-  for (const part of BACKUP_PARTS) {
-    const from = join(dataDir, part);
-    if (existsSync(from)) cpSync(from, join(path, part), { recursive: true });
+  try {
+    for (const part of BACKUP_PARTS) {
+      const from = join(dataDir, part);
+      if (existsSync(from)) cpSync(from, join(path, part), { recursive: true });
+    }
+  } catch (error) {
+    rmSync(path, { recursive: true, force: true }); // never leave half a backup behind
+    throw error;
   }
   const bytes = sizeOf(path);
   writeFileSync(join(path, "manifest.json"), JSON.stringify({ name, stackVersion, createdAt, bytes, complete: true }, null, 2) + "\n");
   return { name, path, bytes, stackVersion, createdAt };
 }
 
-/** A backup directory without a manifest is an interrupted copy: removed, and named. */
+/**
+ * A dated backup directory without a manifest is an interrupted copy: removed, and named.
+ * Pre-restore copies and anything else in backups/ are never touched.
+ */
 export function cleanPartialBackups(dataDir: string): string[] {
   if (!existsSync(backupsDir(dataDir))) return [];
   const removed: string[] = [];
   for (const name of readdirSync(backupsDir(dataDir))) {
+    if (!DATED.test(name)) continue;
     if (!existsSync(join(backupsDir(dataDir), name, "manifest.json"))) {
       rmSync(join(backupsDir(dataDir), name), { recursive: true, force: true });
       removed.push(name);
@@ -69,7 +97,7 @@ export function cleanPartialBackups(dataDir: string): string[] {
   return removed;
 }
 
-/** By name — the stamp is in it — newest first; never by file time (Review Focus 5). */
+/** Newest first, by the time each was made (from its manifest — never the file's time, Review Focus 5). */
 export function listBackups(dataDir: string): BackupInfo[] {
   if (!existsSync(backupsDir(dataDir))) return [];
   const out: BackupInfo[] = [];
@@ -81,31 +109,108 @@ export function listBackups(dataDir: string): BackupInfo[] {
       // not a backup
     }
   }
-  return out.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+  return out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.name < b.name ? 1 : -1));
 }
 
-/** Swaps the backup in; what was there is kept as `pre-restore-<stamp>` so a restore is itself undoable. */
-export function restoreBackup(dataDir: string, name: string, appStack: string, deps: Pick<BackupDeps, "now"> = {}): { preRestore: string } {
+/** Keeps the newest KEEP_BACKUPS backups and KEEP_PRE_RESTORE pre-restore copies; returns what it removed. */
+export function pruneBackups(dataDir: string): string[] {
+  const all = listBackups(dataDir);
+  const pre = all.filter((b) => b.name.startsWith("pre-restore-"));
+  const dated = all.filter((b) => !b.name.startsWith("pre-restore-"));
+  const drop = [...dated.slice(KEEP_BACKUPS), ...pre.slice(KEEP_PRE_RESTORE)];
+  for (const b of drop) rmSync(b.path, { recursive: true, force: true });
+  return drop.map((b) => b.name);
+}
+
+const journalPath = (dataDir: string) => join(dataDir, "restore-journal.json");
+const stagingPath = (dataDir: string) => join(dataDir, "restore-staging");
+type Journal = { name: string; preRestore: string; parts: string[]; startedAt: string };
+
+/**
+ * Swaps a backup in without ever losing the current store (review C1):
+ * 1. copy the backup into restore-staging/ — a failure here touches nothing;
+ * 2. write restore-journal.json;
+ * 3. per part, move the live part into backups/pre-restore-<stamp>/ and the staged one in (renames);
+ * 4. mark the pre-restore copy complete, record the restored store's stack, drop the journal.
+ * A crash between 2 and 4 is rolled back by recoverInterruptedRestore at the next start.
+ * Settings, the sign-in and the remote-vault list stay as they are today (review I3).
+ */
+export function restoreBackup(dataDir: string, name: string, appStack: string, deps: BackupDeps = {}): { preRestore: string } {
   const backup = listBackups(dataDir).find((b) => b.name === name);
   if (!backup) throw new BackupNotFoundError(`No backup named ${name}.`);
   if (compareVersions(backup.stackVersion, appStack) > 0) {
     throw new BackupTooNewError(`This backup was made by a newer Knowledge Vault (stack ${backup.stackVersion}) than this one (stack ${appStack}). Download the newer version to restore it.`);
   }
+  for (const part of REQUIRED_PARTS) {
+    if (!existsSync(join(backup.path, part))) throw new BackupIncompleteError(`The backup ${name} has no ${part}; it cannot be restored.`);
+  }
+  const needed = STORE_PARTS.reduce((n, part) => n + sizeOf(join(backup.path, part)), 0);
+  const { available } = (deps.statfs ?? freeSpace)(dataDir);
+  if (available < needed) throw new NotEnoughSpaceError(needed, available);
   const now = deps.now ?? (() => new Date().toISOString());
+  const copy = deps.copy ?? ((from: string, to: string) => cpSync(from, to, { recursive: true }));
+
+  // 1. stage
+  const staging = stagingPath(dataDir);
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(staging, { recursive: true });
+  try {
+    for (const part of STORE_PARTS) {
+      const from = join(backup.path, part);
+      if (existsSync(from)) copy(from, join(staging, part));
+    }
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  // 2. journal
   const preRestore = `pre-restore-${stamp(now())}`;
   const keep = join(backupsDir(dataDir), preRestore);
   mkdirSync(keep, { recursive: true });
-  for (const part of BACKUP_PARTS) {
+  const previousStack = readConfig(dataDir).stackVersion;
+  const journal: Journal = { name, preRestore, parts: [...STORE_PARTS], startedAt: now() };
+  writeFileAtomic(journalPath(dataDir), JSON.stringify(journal) + "\n");
+  // 3. swap, part by part — each move is a rename, so every part is either live or in the copy
+  for (const part of STORE_PARTS) {
     const current = join(dataDir, part);
     if (existsSync(current)) renameSync(current, join(keep, part));
-    const from = join(backup.path, part);
-    if (existsSync(from)) cpSync(from, current, { recursive: true });
+    const staged = join(staging, part);
+    if (existsSync(staged)) renameSync(staged, current);
+    deps.afterMove?.(part);
   }
-  writeFileSync(join(keep, "manifest.json"), JSON.stringify({ name: preRestore, stackVersion: appStack, createdAt: now(), bytes: sizeOf(keep), complete: true }, null, 2) + "\n");
+  // 4. done
+  const keptStack = typeof previousStack === "string" && previousStack ? previousStack : appStack;
+  writeFileSync(join(keep, "manifest.json"), JSON.stringify({ name: preRestore, stackVersion: keptStack, createdAt: now(), bytes: sizeOf(keep), complete: true }, null, 2) + "\n");
+  writeConfig(dataDir, { ...readConfig(dataDir), stackVersion: backup.stackVersion });
+  rmSync(journalPath(dataDir), { force: true });
+  rmSync(staging, { recursive: true, force: true });
   return { preRestore };
 }
 
-/** Everything under the data dir goes — the app returns to first run — except the backups unless asked. */
+/** At start, before anything opens the store: an interrupted restore is rolled back — the user's store comes back. */
+export function recoverInterruptedRestore(dataDir: string): { name: string; preRestore: string } | undefined {
+  if (!existsSync(journalPath(dataDir))) return undefined;
+  let journal: Journal;
+  try {
+    journal = JSON.parse(readFileSync(journalPath(dataDir), "utf8")) as Journal;
+  } catch {
+    rmSync(journalPath(dataDir), { force: true });
+    return undefined;
+  }
+  const keep = join(backupsDir(dataDir), journal.preRestore);
+  for (const part of journal.parts) {
+    const kept = join(keep, part);
+    if (!existsSync(kept)) continue; // never moved: the live part is still the user's
+    const current = join(dataDir, part);
+    rmSync(current, { recursive: true, force: true });
+    renameSync(kept, current);
+  }
+  rmSync(keep, { recursive: true, force: true });
+  rmSync(stagingPath(dataDir), { recursive: true, force: true });
+  rmSync(journalPath(dataDir), { force: true });
+  return { name: journal.name, preRestore: journal.preRestore };
+}
+
 export function deleteAllData(dataDir: string, opts: { includeBackups: boolean }): void {
   if (!existsSync(dataDir)) return;
   for (const entry of readdirSync(dataDir)) {

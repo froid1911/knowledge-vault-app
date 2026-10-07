@@ -55,7 +55,8 @@ describe("exportVault", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "kv-export-"));
     const { fetchImpl, calls } = fakeReactor();
     const result = await exportVault({ origin: ORIGIN, driveId: "drive1", dataDir, fetchImpl, now: () => "2026-10-07T12:00:00.000Z" });
-    expect(result).toMatchObject({ documents: 2, path: join(dataDir, "exports", "research-notes-2026-10-07T12-00-00Z") });
+    expect(result).toMatchObject({ documents: 2, failed: [], path: join(dataDir, "exports", "research-notes-2026-10-07T12-00-00Z") });
+    expect(existsSync(`${result.path}.partial`)).toBe(false);
     expect(result.bytes).toBeGreaterThan(0);
     const read = (f: string) => JSON.parse(readFileSync(join(result.path, f), "utf8")) as Record<string, unknown>;
     expect(read("drive-info.json")).toEqual({ id: "drive1", slug: "research-notes", name: "Research notes" });
@@ -100,5 +101,23 @@ describe("exportVault", () => {
     expect(r.documents).toBe(0);
     expect(existsSync(join(r.path, "llms-full.txt"))).toBe(false);
     expect(existsSync(join(r.path, "manifest.json"))).toBe(true);
+  });
+  it("goes on past a document it cannot read, names it, and leaves no half-written folder when the export itself fails", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "kv-export-"));
+    const { fetchImpl } = fakeReactor();
+    const flaky = vi.fn(async (url: unknown, init?: { body?: unknown }) => {
+      const body = init?.body ? (JSON.parse(String(init.body)) as { variables?: Record<string, unknown> }) : undefined;
+      if (body?.variables?.id === "m") throw new Error("socket hang up");
+      return (fetchImpl as unknown as (u: unknown, i?: unknown) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+    const r = await exportVault({ origin: ORIGIN, driveId: "drive1", dataDir, fetchImpl: flaky, now: () => "2026-10-07T12:00:00.000Z" });
+    expect(r).toMatchObject({ documents: 1, failed: ["m"] });
+    expect(JSON.parse(readFileSync(join(r.path, "manifest.json"), "utf8"))).toMatchObject({ unreadable: ["m"] });
+    const broken = vi.fn(async (url: unknown, init?: { body?: unknown }) => {
+      if (String(init?.body ?? "").includes("knowledgeGraphEdges")) throw new Error("graph down");
+      return (fetchImpl as unknown as (u: unknown, i?: unknown) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+    await expect(exportVault({ origin: ORIGIN, driveId: "drive1", dataDir, fetchImpl: broken, now: () => "2026-10-08T12:00:00.000Z" })).rejects.toThrow(/graph down/);
+    expect(readdirSync(join(dataDir, "exports")).filter((n) => n.includes("2026-10-08"))).toEqual([]);
   });
 });

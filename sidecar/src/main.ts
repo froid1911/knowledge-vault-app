@@ -16,8 +16,9 @@ import { ensureSecret } from "./secrets.js";
 import { singleFlight } from "./single-flight.js";
 import { readModelKey, readSettings, readStackVersion, writeSettings, writeStackVersion } from "./settings.js";
 import { acquireEngineLock, StoreInUseError } from "./engine-lock.js";
-import { readLastAction, runPendingAction, takePending, writePending } from "./pending.js";
-import { cleanPartialBackups, listBackups } from "./backups.js";
+import { readLastAction, runPendingAction, takePending, writeLastAction, writePending } from "./pending.js";
+import { cleanPartialBackups, listBackups, recoverInterruptedRestore } from "./backups.js";
+import { stopOrphanedHelper } from "./orphans.js";
 import { exportVault } from "./export.js";
 import { compareStack, TOO_NEW_MESSAGE } from "./store-guard.js";
 import { createPipelineManager } from "./pipelines.js";
@@ -98,19 +99,34 @@ async function main(): Promise<void> {
     throw error;
   }
   process.on("exit", () => releaseLock());
-  // (2) a backup, restore or delete-all the user asked for runs now, with the store closed.
+  // (2) a restore cut short (a crash, a power cut) is rolled back: the user's store comes back whole.
+  const recovered = recoverInterruptedRestore(cfg.dataDir);
+  if (recovered) {
+    const detail = `The restore of ${recovered.name} was interrupted; your vaults were put back as they were.`;
+    console.warn(`[sidecar] ${detail}`);
+    writeLastAction(cfg.dataDir, { action: "restore", ok: false, detail, at: new Date().toISOString() });
+  }
+  // (3) a converter helper left by a killed engine is stopped before a delete-all can lose its record.
+  const orphan = stopOrphanedHelper(cfg.dataDir);
+  if (orphan !== undefined) console.warn(`[sidecar] stopped an orphaned converter helper (pid ${orphan})`);
+  // (4) a backup, restore or delete-all the user asked for runs now, with the store closed.
   const pending = takePending(cfg.dataDir);
   if (pending) {
-    const result = runPendingAction(cfg.dataDir, pending, STACK_VERSION);
+    const result = runPendingAction(cfg.dataDir, pending, STACK_VERSION, { storeStack: readStackVersion(cfg.dataDir) });
     console.log(`[sidecar] ${pending.action}: ${result.ok ? "done" : "refused"} — ${result.detail}`);
-    if (pending.action === "delete-all") {
-      prepareDataDir(cfg.dataDir); // the store is fresh again: its folders, and our lock, are recreated
-      releaseLock = acquireEngineLock(cfg.dataDir, process.pid);
+    if (pending.action === "delete-all" && result.ok) {
+      prepareDataDir(cfg.dataDir); // the store is fresh again: its folders are recreated (the lock was kept)
+      // The supervisor read the protection setting before this ran; the delete-all reset it (and the
+      // sign-in). A protected engine restarts so it is spawned open, as the fresh store is.
+      if (cfg.protected) {
+        console.log("[sidecar] the delete-all reset protection; restarting so the engine opens as a fresh store");
+        return new Promise<void>(() => process.stdout.write(restartLine("protection") + "\n", () => process.exit(0)));
+      }
     }
   }
-  // (3) an interrupted backup is not a backup.
+  // (5) an interrupted backup is not a backup.
   for (const name of cleanPartialBackups(cfg.dataDir)) console.warn(`[sidecar] removed an incomplete backup: ${name}`);
-  // (4) the stack guard: never open a store written by a newer stack; back up before opening one written by an older stack.
+  // (6) the stack guard: never open a store written by a newer stack; back up before opening one written by an older stack.
   const recordedStack = readStackVersion(cfg.dataDir);
   if (STACK_VERSION === "unknown") {
     console.warn("[sidecar] the Switchboard's version is unknown — the store guard is skipped");
@@ -121,6 +137,13 @@ async function main(): Promise<void> {
       // Labelled with the stack that wrote the store, so the restore guard reads it right.
       const result = runPendingAction(cfg.dataDir, { action: "backup" }, recordedStack!);
       console.log(`[sidecar] upgrading the store from stack ${recordedStack} to ${STACK_VERSION}: backup ${result.ok ? "made" : "refused"} — ${result.detail}`);
+      // Spec §9: a migration runs only after that backup. Without one, the store stays as it is.
+      if (!result.ok) {
+        return fatalExit(
+          "backup-failed",
+          `Knowledge Vault backs your vaults up before it upgrades them (stack ${recordedStack} → ${STACK_VERSION}), and could not: ${result.detail} Free some space, then try again.`,
+        );
+      }
     }
   }
   const workflowsKey = ensureSecret(join(cfg.dataDir, "secrets", "workflows.key"));
@@ -210,13 +233,15 @@ async function main(): Promise<void> {
     engineProtected: cfg.protected,
   });
 
+  // The port the control server actually binds (it falls back upward when the configured one is busy).
+  let boundControlPort = cfg.controlPort;
   const control = createControlServer({
     token: cfg.controlToken,
     hostOrigin: cfg.hostOrigin,
     status: () => ({
       ok: true,
       port: switchboard.port,
-      controlPort: cfg.controlPort,
+      controlPort: boundControlPort,
       appVersion: cfg.appVersion,
       protected: cfg.protected,
       adminAddress: cfg.adminAddress ?? null,
@@ -299,6 +324,7 @@ async function main(): Promise<void> {
     },
   });
   const controlPort = await control.listen(cfg.controlPort);
+  boundControlPort = controlPort;
   process.stdout.write(readyLine(switchboard.port, controlPort) + "\n");
 
   // The shell and the dev loop set KV_STDIN_STOP=1 and keep our stdin open:

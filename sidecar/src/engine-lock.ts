@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { realProbe, sameBoot, type ProcessProbe } from "./process-identity.js";
 
 /** Another engine holds this store (spec §9: one engine per data dir — two would corrupt PGlite). */
 export class StoreInUseError extends Error {
@@ -10,31 +11,37 @@ export class StoreInUseError extends Error {
 
 const lockPath = (dataDir: string) => join(dataDir, "engine.lock");
 
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM"; // alive, owned by someone else
-  }
+/** A recorded holder still holds the lock: same boot, alive, and — when it can be told — still an engine. */
+function holds(record: { pid?: unknown; bootTime?: unknown }, self: number, probe: ProcessProbe): boolean {
+  const pid = record.pid;
+  if (typeof pid !== "number" || pid === self) return false;
+  if (!sameBoot(record.bootTime, probe)) return false; // left by a previous boot: the pid means nothing now
+  if (!probe.alive(pid)) return false;
+  const cmd = probe.command(pid);
+  // A command line we can read that is not an engine: the pid was reused. One we cannot read: refuse (safe side).
+  return cmd === undefined || cmd.includes("main.js");
 }
 
 /**
- * Takes `engine.lock` for `pid`. A lock naming a live process refuses; a lock
- * left by a dead one (a crash, a SIGKILL) is replaced. Returns the release.
+ * Takes `engine.lock` for `pid`. A lock naming a live engine refuses; a lock left by a dead one,
+ * a previous boot, or a pid now used by another program is replaced. Returns the release.
  */
-export function acquireEngineLock(dataDir: string, pid: number, alive: (pid: number) => boolean = processAlive): () => void {
+export function acquireEngineLock(dataDir: string, pid: number, probe: ProcessProbe = realProbe): () => void {
   mkdirSync(dataDir, { recursive: true });
-  if (existsSync(lockPath(dataDir))) {
-    let holder: number | undefined;
+  const record = JSON.stringify({ pid, bootTime: probe.bootTime(), startedAt: new Date().toISOString() }) + "\n";
+  try {
+    writeFileSync(lockPath(dataDir), record, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    let existing: { pid?: unknown; bootTime?: unknown } = {};
     try {
-      holder = (JSON.parse(readFileSync(lockPath(dataDir), "utf8")) as { pid?: number }).pid;
+      existing = JSON.parse(readFileSync(lockPath(dataDir), "utf8")) as typeof existing;
     } catch {
-      holder = undefined;
+      existing = {};
     }
-    if (typeof holder === "number" && holder !== pid && alive(holder)) throw new StoreInUseError(holder);
+    if (holds(existing, pid, probe)) throw new StoreInUseError(existing.pid as number);
+    writeFileSync(lockPath(dataDir), record);
   }
-  writeFileSync(lockPath(dataDir), JSON.stringify({ pid, startedAt: new Date().toISOString() }) + "\n");
   return () => {
     try {
       const held = (JSON.parse(readFileSync(lockPath(dataDir), "utf8")) as { pid?: number }).pid;

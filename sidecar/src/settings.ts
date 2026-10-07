@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeFileAtomic } from "./process-identity.js";
 
 /**
  * Spec §5.6: `config.json` in the data dir holds settings; secrets never do. The
@@ -52,7 +53,7 @@ export function readConfig(dataDir: string): Record<string, unknown> {
 }
 export function writeConfig(dataDir: string, raw: Record<string, unknown>): void {
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1 }, null, 2) + "\n");
+  writeFileAtomic(configPath(dataDir), JSON.stringify({ ...raw, version: 1 }, null, 2) + "\n");
 }
 
 function readRaw(dataDir: string): Record<string, unknown> {
@@ -131,7 +132,7 @@ export function writeSettings(dataDir: string, patch: SettingsPatch): AppSetting
   const ui = { ...(raw.ui && typeof raw.ui === "object" ? (raw.ui as Record<string, unknown>) : {}) };
   if (patch.ui && typeof patch.ui.closeToTray === "boolean") ui.closeToTray = patch.ui.closeToTray;
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(configPath(dataDir), JSON.stringify({ ...raw, version: 1, models, conversion, ...(Object.keys(ui).length ? { ui } : {}) }, null, 2) + "\n");
+  writeFileAtomic(configPath(dataDir), JSON.stringify({ ...raw, version: 1, models, conversion, ...(Object.keys(ui).length ? { ui } : {}) }, null, 2) + "\n");
   return readSettings(dataDir);
 }
 
@@ -155,7 +156,7 @@ export function writeLocalProtection(dataDir: string, protection: LocalProtectio
   if (protection.protected && !protection.adminAddress) throw new SettingsError("Protection needs the signed-in administrator's address.");
   const raw = readRaw(dataDir);
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(
+  writeFileAtomic(
     configPath(dataDir),
     JSON.stringify({ ...raw, version: 1, local: { protected: protection.protected, adminAddress: protection.adminAddress } }, null, 2) + "\n",
   );
