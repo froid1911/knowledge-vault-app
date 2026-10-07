@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 /** The reactor's `ActionInput` (spec §4.5: template replay goes through `execute`). */
 export type ActionInput = { id: string; type: string; timestampUtcMs: string; input: unknown; scope: "global" };
 
-export async function gql<T>(origin: string, query: string, variables: Record<string, unknown>, fetchImpl: typeof fetch): Promise<T> {
-  const res = await fetchImpl(`${origin}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query, variables }) });
+/** One GraphQL request; `path` selects the endpoint (the reactor at `/graphql`, the vault's graph subgraph at `/graphql/knowledgeGraph`). */
+export async function gql<T>(origin: string, query: string, variables: Record<string, unknown>, fetchImpl: typeof fetch, path = "/graphql"): Promise<T> {
+  const res = await fetchImpl(`${origin}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query, variables }) });
   if (!res.ok) throw new Error(`The engine answered HTTP ${res.status}`);
   const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
   if (json.errors?.length) throw new Error(json.errors.map((e) => e.message).join("; "));

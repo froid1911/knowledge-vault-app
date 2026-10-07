@@ -7,6 +7,7 @@ import type { EnsureResult, PipelineStatus } from "./pipelines.js";
 import { SettingsError, type AppSettings, type ConversionMode, type ConversionSettings, type SettingsPatch, type LocalProtection } from "./settings.js";
 import { NotAVaultError, type DriveRef, type VaultSummary } from "./vaults.js";
 import type { BackupInfo } from "./backups.js";
+import type { ExportResult } from "./export.js";
 import type { ActionResult, PendingAction } from "./pending.js";
 
 export type StatusPayload = {
@@ -74,6 +75,8 @@ export type ControlDeps = {
     lastAction: () => ActionResult | undefined;
     schedule: (action: PendingAction) => void;
   };
+  /** Spec §9: GET /vaults/:id/export — the vault as documents under exports/ (synchronous; the host shows a spinner). */
+  exportVault: (id: string) => Promise<ExportResult>;
   /** POST /shutdown: announce the stop (so the supervisor does not count it as a crash) and exit. */
   shutdown: () => void;
   /** GET /logs/tail: the supervisor's last lines, for Diagnostics. */
@@ -272,6 +275,10 @@ export function createControlServer(deps: ControlDeps) {
         const id = decodeURIComponent(remote[1]!);
         deps.remote.remove(id);
         return send(res, 200, { removed: id }, allowed);
+      }
+      const exportMatch = url.pathname.match(/^\/vaults\/([^/]+)\/export$/);
+      if (exportMatch && req.method === "GET") {
+        return send(res, 200, { export: await deps.exportVault(decodeURIComponent(exportMatch[1]!)) }, allowed);
       }
       // Plan 5 — maintenance. Every action runs at the next start, with the store closed.
       if (req.method === "GET" && url.pathname === "/backups") {

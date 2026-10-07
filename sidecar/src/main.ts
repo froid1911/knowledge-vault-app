@@ -18,6 +18,7 @@ import { readModelKey, readSettings, readStackVersion, writeSettings, writeStack
 import { acquireEngineLock, StoreInUseError } from "./engine-lock.js";
 import { readLastAction, runPendingAction, takePending, writePending } from "./pending.js";
 import { cleanPartialBackups, listBackups } from "./backups.js";
+import { exportVault } from "./export.js";
 import { compareStack, TOO_NEW_MESSAGE } from "./store-guard.js";
 import { createPipelineManager } from "./pipelines.js";
 import { validateModelEndpoint } from "./models-validate.js";
@@ -27,7 +28,7 @@ import { createRequire } from "node:module";
 import { createProtectionSwitch } from "./protection.js";
 import { authorizedFetch, createEngineTokenProvider } from "./authorized-fetch.js";
 import { ensureKyselyMigrationTables } from "./auth-tables.js";
-import { createVaultDrive, deleteVaultDrive, ensureWorkflowsDrive, listVaultDrives, renameVaultDrive } from "./vaults.js";
+import { createVaultDrive, deleteVaultDrive, ensureWorkflowsDrive, listVaultDrives, NotAVaultError, renameVaultDrive } from "./vaults.js";
 
 // The data-dir storage swap must be registered before the Switchboard (and
 // through it @powerhousedao/pglite-fs) is imported — hence the dynamic import below.
@@ -252,6 +253,10 @@ async function main(): Promise<void> {
         writePending(cfg.dataDir, action);
         requestRestart(action.action);
       },
+    },
+    exportVault: async (id) => {
+      if (!(await listVaultDrives(origin, engineFetch)).some((v) => v.id === id)) throw new NotAVaultError("That drive is not a vault.");
+      return exportVault({ origin, driveId: id, dataDir: cfg.dataDir, fetchImpl: engineFetch });
     },
     shutdown: () => {
       setTimeout(() => {

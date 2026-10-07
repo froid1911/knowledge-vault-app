@@ -86,6 +86,7 @@ async function harnessDeps(): Promise<Parameters<typeof createControlServer>[0]>
       schedule: (action) => { scheduled.push(action); },
     },
     shutdown: () => { shutdowns += 1; },
+    exportVault: async (id) => { if (id !== "v1") throw new NotAVaultError("That drive is not a vault."); return { path: "/data/vault/exports/research-2026-10-07T12-00-00Z", documents: 2, bytes: 4096 }; },
     logsTail: () => ["line one", "line two"],
     debugRoutes,
   });
@@ -357,5 +358,14 @@ describe("settings changes reach the pipelines", () => {
     expect((await fetch(`http://127.0.0.1:${port}/status`, { headers: { authorization: "Bearer secret" } })).status).toBe(200);
     await server.close();
     await new Promise((r) => holder.close(r));
+  });
+
+  it("Plan 5: exports a vault as documents, 404 for a drive that is not a vault", async () => {
+    const base = await start();
+    const h = { authorization: "Bearer secret" };
+    const ok = await fetch(`${base}/vaults/v1/export`, { headers: h });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ export: { path: "/data/vault/exports/research-2026-10-07T12-00-00Z", documents: 2, bytes: 4096 } });
+    expect((await fetch(`${base}/vaults/nope/export`, { headers: h })).status).toBe(404);
   });
 });

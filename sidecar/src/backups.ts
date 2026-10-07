@@ -21,7 +21,7 @@ export type BackupDeps = { now?: () => string; statfs?: (dir: string) => { avail
 
 const backupsDir = (dataDir: string) => join(dataDir, "backups");
 /** `2026-10-07T12:00:00.000Z` → `2026-10-07T12-00-00Z`: sortable, and legal in a file name everywhere. */
-const stamp = (iso: string) => iso.replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
+export const stamp = (iso: string): string => iso.replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
 
 export function human(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.ceil(bytes / 1e6)} MB`;
