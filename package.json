@@ -18,7 +18,8 @@
     "stack:check": "node scripts/check-stack-versions.mjs",
     "e2e": "playwright test",
     "sync:converter": "node scripts/sync-converter.mjs",
-    "converter:check": "node scripts/sync-converter.mjs --check"
+    "converter:check": "node scripts/sync-converter.mjs --check",
+    "bundle:inputs": "node scripts/ensure-bundle-inputs.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

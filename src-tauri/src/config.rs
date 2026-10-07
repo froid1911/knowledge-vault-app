@@ -69,12 +69,39 @@ impl UiConfig {
     }
 }
 
+/// How the engine is started (Plan 6): from the installed app's resources with the Node it
+/// bundles, or — in development — from the repository's `sidecar/` with the `node` on PATH.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SidecarLaunch {
+    /// `<root>/dist/main.js`
+    pub main: PathBuf,
+    /// `<root>` — the engine resolves its packages from `<root>/node_modules`.
+    pub cwd: PathBuf,
+    /// Run with the bundled `node` (the `binaries/node` external binary) rather than PATH's.
+    pub bundled_node: bool,
+}
+
+impl SidecarLaunch {
+    pub fn for_build(packaged: bool, resource_dir: &Path, repo_dir: &Path) -> Self {
+        let root = if packaged {
+            resource_dir.join("sidecar")
+        } else {
+            repo_dir.join("sidecar")
+        };
+        SidecarLaunch {
+            main: root.join("dist").join("main.js"),
+            cwd: root,
+            bundled_node: packaged,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppPaths {
     /// Spec §3.3: the app-data directory (reactor/, read-model/, secrets/, logs/ live here).
     pub data_dir: PathBuf,
-    /// The sidecar entry: in dev `../sidecar/dist/main.js` relative to the repo root.
-    pub sidecar_main: PathBuf,
+    /// Where the engine is and which Node runs it.
+    pub sidecar: SidecarLaunch,
 }
 
 #[derive(Clone, Copy)]
@@ -166,6 +193,30 @@ mod tests {
             UiConfig::load(&path).close_to_tray,
             "unreadable → keep running"
         );
+    }
+
+    #[test]
+    fn an_installed_app_runs_the_engine_from_its_resources_with_the_bundled_node() {
+        let resources = Path::new("/Applications/Knowledge Vault.app/Contents/Resources");
+        let repo = Path::new("/home/u/desktop-knowledge-vault");
+        let packaged = SidecarLaunch::for_build(true, resources, repo);
+        assert_eq!(
+            packaged.main,
+            PathBuf::from(
+                "/Applications/Knowledge Vault.app/Contents/Resources/sidecar/dist/main.js"
+            )
+        );
+        assert_eq!(
+            packaged.cwd,
+            PathBuf::from("/Applications/Knowledge Vault.app/Contents/Resources/sidecar")
+        );
+        assert!(packaged.bundled_node);
+        let dev = SidecarLaunch::for_build(false, resources, repo);
+        assert_eq!(
+            dev.main,
+            PathBuf::from("/home/u/desktop-knowledge-vault/sidecar/dist/main.js")
+        );
+        assert!(!dev.bundled_node);
     }
 
     #[test]

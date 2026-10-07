@@ -315,7 +315,7 @@ pub fn parse_restart_line(line: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Spawn `node <sidecar_main>` with the env (cwd = sidecar/); relay readiness and exit as `sidecar:status` events.
+/// Spawn `node <dist/main.js>` (bundled or PATH's) with the env, cwd = the engine's root; relay readiness and exit as `sidecar:status` events.
 /// The protection section is read from config.json at every spawn, so a respawn picks up the switch.
 pub fn spawn_sidecar(
     app: &AppHandle,
@@ -326,19 +326,18 @@ pub fn spawn_sidecar(
 ) -> tauri::Result<()> {
     let protection = LocalProtection::load(&paths.data_dir.join("config.json"));
     let env = SidecarEnv::build(paths, &ports, &token, app_version, &protection);
-    // cwd = sidecar/ (dist/main.js → ..): the sidecar resolves its own modules from there.
+    // cwd = the engine's root: it resolves its packages from <root>/node_modules.
     // The engine's environment is scrubbed by the sidecar itself (environment.ts), whoever spawns it.
-    let sidecar_dir = paths
-        .sidecar_main
-        .parent()
-        .and_then(|d| d.parent())
-        .map(|d| d.to_path_buf())
-        .unwrap_or_default();
-    let mut cmd = app
-        .shell()
-        .command("node")
-        .args([paths.sidecar_main.to_string_lossy().as_ref()])
-        .current_dir(sidecar_dir);
+    let base = if paths.sidecar.bundled_node {
+        app.shell()
+            .sidecar("node")
+            .map_err(|e| tauri::Error::Anyhow(e.into()))?
+    } else {
+        app.shell().command("node")
+    };
+    let mut cmd = base
+        .args([paths.sidecar.main.to_string_lossy().as_ref()])
+        .current_dir(&paths.sidecar.cwd);
     for (k, v) in env {
         cmd = cmd.env(k, v);
     }
@@ -656,7 +655,11 @@ mod tests {
     fn env_carries_the_data_dir_intact_and_every_kv_variable() {
         let paths = AppPaths {
             data_dir: PathBuf::from("/tmp/Knowledge Vault äö/data"),
-            sidecar_main: PathBuf::from("/app/sidecar/dist/main.js"),
+            sidecar: crate::config::SidecarLaunch::for_build(
+                true,
+                std::path::Path::new("/app"),
+                std::path::Path::new("/repo"),
+            ),
         };
         let ports = Ports {
             host: 4200,
@@ -686,7 +689,11 @@ mod tests {
     fn env_carries_protection_only_with_an_administrator() {
         let paths = AppPaths {
             data_dir: PathBuf::from("/data"),
-            sidecar_main: PathBuf::from("/app/sidecar/dist/main.js"),
+            sidecar: crate::config::SidecarLaunch::for_build(
+                true,
+                std::path::Path::new("/app"),
+                std::path::Path::new("/repo"),
+            ),
         };
         let ports = Ports {
             host: 4200,

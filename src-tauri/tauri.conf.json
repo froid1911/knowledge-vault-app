@@ -13,13 +13,36 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": [
+      "appimage",
+      "deb",
+      "app",
+      "dmg"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Your Powerhouse Knowledge Vault, on your own computer",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": [
+      "binaries/node"
+    ],
+    "resources": {
+      "../.stage/sidecar/": "sidecar/"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "11.0"
+    }
   }
 }

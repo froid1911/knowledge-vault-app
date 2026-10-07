@@ -5,7 +5,9 @@ mod navigation;
 mod sidecar;
 mod tray;
 
-use config::{AppPaths, DEFAULT_PORTS, Ports, UiConfig, new_control_token, pick_free_port};
+use config::{
+    AppPaths, DEFAULT_PORTS, Ports, SidecarLaunch, UiConfig, new_control_token, pick_free_port,
+};
 use sidecar::{ReadyInfo, SidecarState, sidecar_info, spawn_sidecar, stop_sidecar_blocking};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -66,11 +68,29 @@ fn quit_app(app: AppHandle) {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    // Plan 6: an installed app (a release build) serves the host itself over loopback, on a port
+    // picked free now — the server panics on a busy port — and runs the engine it bundles. In
+    // development Vite serves the host on 4200 and the engine comes from the repository.
+    let packaged = !tauri::is_dev();
+    let host_port = if packaged {
+        pick_free_port(DEFAULT_PORTS.host)
+    } else {
+        DEFAULT_PORTS.host
+    };
+    let mut builder = tauri::Builder::default()
         // First: a second launch hands over to this one and exits (spec §9 — one engine per store).
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
-        }))
+        }));
+    if packaged {
+        // Loopback only (Review Focus 3): never reachable from the network.
+        builder = builder.plugin(
+            tauri_plugin_localhost::Builder::new(host_port)
+                .host("127.0.0.1")
+                .build(),
+        );
+    }
+    builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
@@ -84,15 +104,23 @@ pub fn run() {
             quit_app,
             retry_engine
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
             if let Err(e) = tray::build(&handle) {
                 eprintln!("[shell] no system tray ({e}); closing the window will quit the app");
             }
             // The window is built here rather than declared in tauri.conf.json so it can carry
             // the navigation guard (spec §5.8): external pages go to the system browser.
-            let host_port = DEFAULT_PORTS.host;
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+            let url = if packaged {
+                tauri::WebviewUrl::External(
+                    format!("http://127.0.0.1:{host_port}")
+                        .parse()
+                        .expect("a loopback URL"),
+                )
+            } else {
+                tauri::WebviewUrl::default()
+            };
+            tauri::WebviewWindowBuilder::new(app, "main", url)
                 .title("Knowledge Vault")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(960.0, 640.0)
@@ -141,15 +169,16 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?.join("vault");
             std::fs::create_dir_all(&data_dir)?;
             *app.state::<DataDir>().0.lock().unwrap() = Some(data_dir.clone());
-            let sidecar_main = std::env::current_dir()?
-                .join("../sidecar/dist/main.js")
-                .canonicalize()?;
-            let paths = AppPaths {
-                data_dir,
-                sidecar_main,
+            let repo_dir = if packaged {
+                PathBuf::new()
+            } else {
+                std::env::current_dir()?.join("..").canonicalize()?
             };
+            let sidecar =
+                SidecarLaunch::for_build(packaged, &app.path().resource_dir()?, &repo_dir);
+            let paths = AppPaths { data_dir, sidecar };
             let ports = Ports {
-                host: DEFAULT_PORTS.host,
+                host: host_port,
                 sidecar: pick_free_port(DEFAULT_PORTS.sidecar),
                 control: pick_free_port(DEFAULT_PORTS.control),
             };

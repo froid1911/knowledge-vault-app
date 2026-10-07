@@ -155,6 +155,8 @@ if (!noShell) {
   await new Promise((r) => setTimeout(r, 1500));
   // Its own process group: `tauri dev` runs the app under cargo, and signalling only the bunx
   // wrapper leaves the window behind (re-parented to init). The group is signalled as a whole.
+  // Tauri's build script needs the bundle's inputs to exist, even in development.
+  await new Promise((resolve, reject) => spawn("node", ["scripts/ensure-bundle-inputs.mjs"], { stdio: "inherit" }).on("exit", (c) => (c === 0 ? resolve() : reject(new Error(`bundle inputs: exit ${c}`)))));
   const shell = run("bunx", ["@tauri-apps/cli", "dev"], {
     env: { ...process.env, KV_DEV_SIDECAR_PORT: String(ready.port), KV_DEV_CONTROL_PORT: String(ready.controlPort), KV_DEV_CONTROL_TOKEN: TOKEN, KV_DEV_DATA_DIR: dataDir },
     detached: true,
