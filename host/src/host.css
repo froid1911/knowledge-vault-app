@@ -296,6 +296,5 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-assist > p { flex: 1 1 320px; margin: 0; }
 
 /* The pipeline chip's label, when it opens the vault's workflow in Workflow Studio. */
-.kv-pipeline-link { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color 120ms; }
-.kv-pipeline-link:hover, .kv-pipeline-link:focus-visible { text-decoration-color: currentColor; }
+.kv-pipeline-link { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .kv-appbar .kv-pipeline-chip .kv-pipeline-link { padding: 0; border: 0; background: none; font-size: 12px; line-height: inherit; }
