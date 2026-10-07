@@ -3,6 +3,7 @@ import {
   setSelectedDrive,
   setSelectedNode,
   useAppModuleById,
+  useDocumentCache,
   useSelectedDocumentId,
   useSelectedDriveSafe,
   type GraphQLReactorClient,
@@ -11,6 +12,7 @@ import { Suspense, useEffect, useState } from "react";
 import { DocumentEditorContainer } from "../components/DocumentEditorContainer.js";
 import { AppBar } from "../shell/AppBar.js";
 import { PipelineChip } from "../components/PipelineChip.js";
+import { followDrive } from "./follow-drive.js";
 import type { SidecarInfo } from "../sidecar.js";
 
 type Drives = NonNullable<Parameters<typeof setDrives>[0]>;
@@ -35,30 +37,36 @@ export function WorkspaceScreen(props: {
   const [ready, setReady] = useState(false);
   const [title, setTitle] = useState(props.fallbackTitle ?? "");
   const [error, setError] = useState<string | null>(null);
+  const cache = useDocumentCache();
   useEffect(() => {
-    let cancelled = false;
-    props.client
-      .get<DriveDoc>(props.driveId)
-      .then((drive) => {
-        if (cancelled) return;
-        // The GraphQL read carries no header.meta, and meta.preferredEditor is how the app
-        // module is chosen; a missing pointer is healed with this screen's app (the server's wins).
-        const meta = { preferredEditor: props.appId, ...(drive.header.meta ?? {}) };
-        const withMeta = { ...drive, header: { ...drive.header, meta } } as DriveDoc;
+    if (!cache) return;
+    let selected = false;
+    // Every fresh copy goes into the drives slot (what the apps' drive hooks read);
+    // the drive is selected once, so later updates leave the history alone.
+    const stop = followDrive(
+      cache,
+      props.driveId,
+      props.appId,
+      (drive) => {
+        const withMeta = drive as DriveDoc;
         const stateName = (drive.state as { global?: { name?: string } } | undefined)?.global?.name;
         setTitle(stateName || drive.header.name || props.fallbackTitle || "");
         setDrives([withMeta]);
-        setSelectedDrive(withMeta); // the object: a string argument is taken as a slug
-        setReady(true);
-      })
-      .catch((e: Error) => setError(e.message));
+        if (!selected) {
+          selected = true;
+          setSelectedDrive(withMeta); // the object: a string argument is taken as a slug
+          setReady(true);
+        }
+      },
+      (e) => setError(e.message),
+    );
     return () => {
-      cancelled = true;
+      stop();
       setSelectedNode(undefined);
       setSelectedDrive(undefined);
       setDrives([]);
     };
-  }, [props.client, props.driveId, props.appId, props.fallbackTitle]);
+  }, [cache, props.driveId, props.appId, props.fallbackTitle]);
 
   return (
     <div className="kv-vault-screen">
