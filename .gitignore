@@ -1,37 +1,45 @@
-# dependencies & builds
+# Dependencies and builds
 node_modules/
 dist/
+dist-linux/
 target/
 host/dist/
 sidecar/dist/
 sidecar/node_modules/
+*.tsbuildinfo
+.vite/
 
-# spike artefacts that are data, binaries or builds (scripts and notes are kept)
-spike/store-*/
-spike/connect-dist/
-spike/measure/*.log
-spike/measure/*.png
-spike/measure/*/switchboard.log
-spike/bin/vault-switchboard-bun*
-spike/bin/out/
-spike/node_modules
+# Packaging (bun run build:app, scripts/build-linux-docker.sh)
+.stage/
+src-tauri/binaries/
+dist-linux/
 
-# local state
+# Local engine stores (development loop, end-to-end tests)
+.dev-data/
+.e2e-data/
+sidecar/.ph/
+
+# Test output
+test-results/
+playwright-report/
+coverage/
+
+# Notes and experiments from building the app (kept locally, not published)
+docs/superpowers/
+spike/
+.superpowers/
+
+# Local configuration and secrets
 .env
 .env.*
 *.local
 
-# local engine stores (dev loop, e2e)
-.dev-data/
-.e2e-data/
-.superpowers/
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
 
-# engine strays and test output
-sidecar/.ph/
-test-results/
-playwright-report/
-
-# Plan 6: build artefacts
-.stage/
-src-tauri/binaries/
-dist-linux/
+# Logs
+*.log
