@@ -1,44 +1,65 @@
 # macOS test plan
 
-Everything below has been built and tested on Linux, but **has never run on macOS**. This plan is for the first
-hands-on session on a Mac: get the app running from source, then work through the checklist, fixing what breaks.
-Windows is covered by CI (see the end).
+Everything below has been built and tested on Linux, but **has never run on macOS**. This plan covers the first
+session on a Mac: check that GitHub builds the macOS installers (so a tagged release will include them), run the app
+from source and from the built installer, then work through the checklist, fixing what breaks. Windows is covered
+by CI (see the end).
 
-## 1. Set up the Mac
+## 1. Build the macOS installers on GitHub (what a tagged release does)
+
+A release runs when a version tag is pushed, and builds Linux, macOS (Apple silicon and Intel) and Windows. To check
+the macOS builds **without publishing anything**, run the same workflow by hand:
+
+1. On GitHub, open **Actions › Release › Run workflow**, keep **Publish** unticked, and choose **Run workflow**.
+2. Wait for the four build jobs. Each one is a separate machine; a red job's log shows the failing step. The macOS
+   jobs also run the smoke test (`node scripts/smoke-app.mjs`): the built app must start its engine, serve its page
+   and stop cleanly.
+3. The installers are attached to a **draft** release (Releases page, visible only to maintainers): download the
+   `.dmg` for your Mac (`aarch64` for Apple silicon, `x64` for Intel) and install it as in step 3 below.
+
+A manual run with Publish unticked never makes the release public; delete the draft afterwards. A real release is
+`git tag v0.1.0 && git push origin v0.1.0` once everything here passes.
+
+## 2. Set up the Mac to build from source
 
 ```bash
-xcode-select --install                     # Apple's command-line tools (compiler, linker)
-curl -fsSL https://sh.rustup.rs | sh       # Rust; rust-toolchain.toml picks the exact version
-curl -fsSL https://bun.sh/install | bash   # Bun 1.3+ (package manager and scripts)
-brew install node@24                       # Node 24+ for the engine during development
+xcode-select --install                                     # Apple's command-line tools (compiler, linker)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust; rust-toolchain.toml installs 1.98.1 on first use
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"   # Bun, the version CI uses
+brew install node                                          # Node 24 or later, for the engine in development
 
 git clone https://github.com/liberuum/knowledge-vault-app.git
 cd knowledge-vault-app
 bun install
 ```
 
-## 2. Run it in development
+Open a new terminal after installing Rust and Bun so they are on the `PATH`.
+
+## 3. Run it, then build and install it
+
+**Development** — the engine starts on 4201, the page on 4200, then the window opens; data goes to `.dev-data/`
+inside the repository:
 
 ```bash
 bun run dev
 ```
 
-The engine starts on 4201, the page on 4200, then the window opens. Development keeps its data in `.dev-data/`
-inside the repository. If something fails here, the terminal shows the engine's output (`[sidecar] …`) and the
-shell's (`[shell] …`).
+The terminal shows the engine's output (`[sidecar] …`) and the shell's (`[shell] …`). The first run downloads the
+macOS Node the app bundles (checksum-verified) and compiles the shell, which takes a few minutes.
 
-## 3. Build the installer
+**The installer** — the `.app` and `.dmg` for this Mac, then the same smoke test the release runs:
 
 ```bash
-bun run build:app      # src-tauri/target/release/bundle/dmg/ and bundle/macos/Knowledge Vault.app
+bun run build:app      # src-tauri/target/release/bundle/dmg/*.dmg and bundle/macos/Knowledge Vault.app
 bun run smoke:app      # starts the built app on a throwaway data folder: engine ready, page served, clean stop
 ```
 
-The built app is ad-hoc signed, not notarised. The first time you open it, macOS blocks it: go to
-**System Settings › Privacy & Security** and choose **Open Anyway**.
+Open the `.dmg` and drag **Knowledge Vault** to Applications. The app is ad-hoc signed, not notarised: the first time
+you open it, macOS blocks it — go to **System Settings › Privacy & Security** and choose **Open Anyway**.
 
 The installed app keeps its data in `~/Library/Application Support/io.github.liberuum.knowledge-vault-app/`
-(`vault/logs/` has the engine's and the shell's logs).
+(`vault/logs/` has the engine's and the shell's logs). Close a development app before opening the installed one:
+only one Knowledge Vault runs at a time.
 
 ## 4. Checklist
 

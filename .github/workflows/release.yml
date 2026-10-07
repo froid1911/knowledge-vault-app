@@ -1,11 +1,17 @@
-# A release is made on purpose: push a version tag (git tag v0.1.0 && git push origin v0.1.0), or run this
-# workflow from the Actions tab. Every target builds into a DRAFT release and is checked there; the release is
-# made public only when every target succeeded.
+# A release is made on purpose: push a version tag (git tag v0.1.0 && git push origin v0.1.0). Every target
+# builds into a DRAFT release and is checked there; the release is made public only when every target succeeded.
+# Run by hand from the Actions tab to test the builds: the installers land in the draft release, which stays a
+# draft unless "publish" is ticked.
 name: Release
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release when every build succeeds (otherwise it stays a draft)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -122,6 +128,8 @@ jobs:
 
   publish:
     needs: [preflight, build]
+    # A tag publishes; a manual run only when asked to.
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-22.04
     permissions:
       contents: write
