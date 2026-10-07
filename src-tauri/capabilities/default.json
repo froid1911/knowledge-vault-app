@@ -20,6 +20,12 @@
           "url": "mailto:*"
         }
       ]
-    }
+    },
+    "allow-sidecar-info",
+    "allow-open-logs",
+    "allow-reveal-path",
+    "allow-quit-app",
+    "allow-retry-engine",
+    "allow-host-loaded"
   ]
 }

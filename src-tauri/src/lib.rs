@@ -385,3 +385,34 @@ mod working_dir_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod capability_tests {
+    /// Every command the shell registers must be granted to the page, or the installed app's page
+    /// (a remote origin to Tauri) cannot call it. Keep in step with build.rs and generate_handler!.
+    #[test]
+    fn the_capability_grants_every_app_command() {
+        let caps: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let granted: Vec<&str> = caps["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str())
+            .collect();
+        for cmd in [
+            "sidecar_info",
+            "open_logs",
+            "reveal_path",
+            "quit_app",
+            "retry_engine",
+            "host_loaded",
+        ] {
+            let perm = format!("allow-{}", cmd.replace('_', "-"));
+            assert!(
+                granted.contains(&perm.as_str()),
+                "capabilities/default.json does not grant {perm}"
+            );
+        }
+    }
+}
