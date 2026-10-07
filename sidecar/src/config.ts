@@ -74,7 +74,7 @@ export function switchboardEnv(cfg: SidecarConfig, secrets: EngineSecrets, openM
     PH_ATTACHMENT_URL_SIGNING_SECRET: secrets.attachmentSigning,
     // Loopback always (the engine itself, a local model server); plus the saved model endpoint when it is on the local network.
     PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES: ["127.0.0.1/32", "::1/128", ...egressAllow].join(","),
-    SWITCHBOARD_APP_NAME: "desktop-knowledge-vault",
+    SWITCHBOARD_APP_NAME: "knowledge-vault-app",
     MCP_ENABLED: "true",
     LOG_LEVEL: cfg.logLevel,
     NODE_ENV: "production",

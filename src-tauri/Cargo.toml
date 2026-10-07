@@ -1,15 +1,17 @@
 [package]
-name = "desktop-knowledge-vault"
+name = "knowledge-vault-app"
 version = "0.1.0"
 description = "Knowledge Vault — a local desktop app for the Powerhouse Knowledge Vault"
 authors = ["Powerhouse"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/liberuum/knowledge-vault-app"
 edition = "2024"
 rust-version = "1.90"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "desktop_knowledge_vault_lib"
+name = "knowledge_vault_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

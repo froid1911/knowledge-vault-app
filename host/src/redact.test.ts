@@ -11,10 +11,10 @@ describe("redact", () => {
       "url ...?sig=deadbeef",
       "password: hunter2",
       "Cookie: session=abc",
-      "opened /home/beast/.local/share/kv/vault/reactor",
+      "opened /home/alex/.local/share/kv/vault/reactor",
     ];
-    const out = lines.map((l) => redact(l, "/home/beast")).join("\n");
-    for (const secret of ["abc.def", "sk-or", "eyJhbGci", "8f3a9c", "deadbeef", "hunter2", "session=abc", "/home/beast"]) expect(out).not.toContain(secret);
+    const out = lines.map((l) => redact(l, "/home/alex")).join("\n");
+    for (const secret of ["abc.def", "sk-or", "eyJhbGci", "8f3a9c", "deadbeef", "hunter2", "session=abc", "/home/alex"]) expect(out).not.toContain(secret);
     expect(out).toContain("~/.local/share/kv/vault/reactor");
     expect(redact("[sidecar] ready on 4201")).toBe("[sidecar] ready on 4201");
   });

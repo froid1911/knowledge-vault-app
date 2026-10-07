@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn an_installed_app_runs_the_engine_from_its_resources_with_the_bundled_node() {
         let resources = Path::new("/Applications/Knowledge Vault.app/Contents/Resources");
-        let repo = Path::new("/home/u/desktop-knowledge-vault");
+        let repo = Path::new("/home/u/knowledge-vault-app");
         let packaged = SidecarLaunch::for_build(true, resources, repo);
         assert_eq!(
             packaged.main,
@@ -228,7 +228,7 @@ mod tests {
         let dev = SidecarLaunch::for_build(false, resources, repo);
         assert_eq!(
             dev.main,
-            PathBuf::from("/home/u/desktop-knowledge-vault/sidecar/dist/main.js")
+            PathBuf::from("/home/u/knowledge-vault-app/sidecar/dist/main.js")
         );
         assert!(!dev.bundled_node);
     }

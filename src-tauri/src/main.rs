@@ -1,4 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 fn main() {
-    desktop_knowledge_vault_lib::run();
+    knowledge_vault_app_lib::run();
 }

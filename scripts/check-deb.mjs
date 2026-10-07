@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { debBinaries } from "./lib/release-notes.mjs";
 
-const ALLOWED = new Set(["desktop-knowledge-vault", "kv-node"]);
+const ALLOWED = new Set(["knowledge-vault-app", "kv-node"]);
 /** dpkg-deb where it exists (Debian, Ubuntu, CI); elsewhere the .deb's data archive read with ar + tar. */
 function listing(deb) {
   try {

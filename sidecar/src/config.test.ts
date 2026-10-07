@@ -52,7 +52,7 @@ describe("switchboardEnv", () => {
     expect(env.PH_WORKFLOWS_ENABLED).toBe("1");
     expect(env.PH_WORKFLOWS_SECRETS_MASTER_KEY).toBe("wfkey");
     expect(env.PH_WORKFLOWS_EGRESS_ALLOW_ADDRESSES).toBe("127.0.0.1/32,::1/128");
-    expect(env.SWITCHBOARD_APP_NAME).toBe("desktop-knowledge-vault");
+    expect(env.SWITCHBOARD_APP_NAME).toBe("knowledge-vault-app");
     expect(env.MCP_ENABLED).toBe("true");
     for (const k of ["SENTRY_DSN", "ENABLE_TRACING", "PYROSCOPE_SERVER_ADDRESS", "CONVERT_SERVICE_URL"]) {
       expect(k in env).toBe(false);

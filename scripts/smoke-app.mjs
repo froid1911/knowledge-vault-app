@@ -15,7 +15,7 @@ const newest = (dir, ext) => {
 };
 // Linux: the AppImage. macOS: the executable inside the .app bundle.
 const macApp = process.platform === "darwin" ? newest(join(bundle, "macos"), ".app") : undefined;
-const appImage = process.argv[2] ?? (macApp ? join(macApp, "Contents", "MacOS", "desktop-knowledge-vault") : newest(join(bundle, "appimage"), ".AppImage"));
+const appImage = process.argv[2] ?? (macApp ? join(macApp, "Contents", "MacOS", "knowledge-vault-app") : newest(join(bundle, "appimage"), ".AppImage"));
 if (!appImage || !existsSync(appImage)) {
   console.error("[smoke] no built app found — run `bun run build:app` first");
   process.exit(1);
@@ -72,7 +72,7 @@ child.on("exit", (code) => {
   console.log(verdict ?? "[smoke] no verdict from the app");
   if (!verdict && Date.now() - started < 10_000) console.log("[smoke] it exited at once — if Knowledge Vault (or `bun run dev`'s window) is already open, the new launch handed over to it (one instance at a time): close it and run again");
   console.log(`[smoke] exit ${code} after ${((Date.now() - started) / 1000).toFixed(1)} s${process.platform === "linux" ? `; peak memory ${(peak / 1024).toFixed(0)} MB` : ""}`);
-  const store = process.platform === "darwin" ? join(home, "Library", "Application Support", "xyz.powerhouse.desktop-knowledge-vault", "vault") : join(env.XDG_DATA_HOME, "xyz.powerhouse.desktop-knowledge-vault", "vault");
+  const store = process.platform === "darwin" ? join(home, "Library", "Application Support", "io.github.liberuum.knowledge-vault-app", "vault") : join(env.XDG_DATA_HOME, "io.github.liberuum.knowledge-vault-app", "vault");
   console.log(`[smoke] engine store created: ${existsSync(join(store, "reactor"))}`);
   if (code !== 0) console.log(out.split("\n").slice(-30).join("\n"));
   rmSync(home, { recursive: true, force: true });

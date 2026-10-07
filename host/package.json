@@ -1,5 +1,5 @@
 {
-  "name": "@desktop-knowledge-vault/host",
+  "name": "@knowledge-vault-app/host",
   "private": true,
   "type": "module",
   "scripts": {

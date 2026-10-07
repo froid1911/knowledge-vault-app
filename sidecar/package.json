@@ -1,5 +1,5 @@
 {
-  "name": "@desktop-knowledge-vault/sidecar",
+  "name": "@knowledge-vault-app/sidecar",
   "private": true,
   "type": "module",
   "scripts": {

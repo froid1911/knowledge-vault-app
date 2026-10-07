@@ -5,7 +5,7 @@
 # The repository is copied into the container (node_modules, targets and stores excluded).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-image=desktop-knowledge-vault-build:22.04
+image=knowledge-vault-app-build:22.04
 docker build -t "$image" - <<'DOCKERFILE'
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive

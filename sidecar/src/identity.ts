@@ -56,7 +56,7 @@ export async function defaultIdentityDeps(secretsDir: string, renownUrl: string)
   const sdk = await import("@renown/sdk/node");
   return {
     build: async () =>
-      (await new sdk.RenownBuilder("desktop-knowledge-vault", {
+      (await new sdk.RenownBuilder("knowledge-vault-app", {
         storagePath: join(secretsDir, "user.renown.json"),
         keyPath: join(secretsDir, "user.keypair.json"),
         baseUrl: renownUrl,

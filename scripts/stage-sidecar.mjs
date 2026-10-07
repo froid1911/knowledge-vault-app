@@ -30,7 +30,7 @@ mkdirSync(join(ws, "sidecar"), { recursive: true });
 for (const f of ["package.json", "bun.lock", "bunfig.toml", ".npmrc"]) if (existsSync(join(root, f))) copyFileSync(join(root, f), join(ws, f));
 copyFileSync(join(root, "host", "package.json"), join(ws, "host", "package.json"));
 copyFileSync(join(root, "sidecar", "package.json"), join(ws, "sidecar", "package.json"));
-execFileSync("bun", ["install", "--production", "--frozen-lockfile", "--filter", "@desktop-knowledge-vault/sidecar", "--linker", "hoisted"], { cwd: ws, stdio: "inherit" });
+execFileSync("bun", ["install", "--production", "--frozen-lockfile", "--filter", "@knowledge-vault-app/sidecar", "--linker", "hoisted"], { cwd: ws, stdio: "inherit" });
 
 // 2. the engine as it ships
 rmSync(out, { recursive: true, force: true });
@@ -49,8 +49,8 @@ const dropShims = (dir) => {
   }
 };
 dropShims(join(out, "node_modules"));
-// The workspace's link to itself (`@desktop-knowledge-vault/sidecar → ../../sidecar`) points outside the bundle.
-rmSync(join(out, "node_modules", "@desktop-knowledge-vault"), { recursive: true, force: true });
+// The workspace's link to itself (`@knowledge-vault-app/sidecar → ../../sidecar`) points outside the bundle.
+rmSync(join(out, "node_modules", "@knowledge-vault-app"), { recursive: true, force: true });
 rmSync(ws, { recursive: true, force: true });
 
 // 3. this target only

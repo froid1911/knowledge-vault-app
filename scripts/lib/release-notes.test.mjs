@@ -36,13 +36,13 @@ describe("withSizes", () => {
 describe("debBinaries", () => {
   it("lists what a .deb would install into /usr/bin", () => {
     const listing = [
-      "-rwxr-xr-x root/root  12 2026-10-07 12:00 ./usr/bin/desktop-knowledge-vault",
+      "-rwxr-xr-x root/root  12 2026-10-07 12:00 ./usr/bin/knowledge-vault-app",
       "-rwxr-xr-x root/root  99 2026-10-07 12:00 ./usr/bin/kv-node",
       "drwxr-xr-x root/root   0 2026-10-07 12:00 ./usr/bin/",
       "-rw-r--r-- root/root  10 2026-10-07 12:00 ./usr/lib/Knowledge Vault/sidecar/package.json",
     ].join("\n");
-    expect(debBinaries(listing)).toEqual(["desktop-knowledge-vault", "kv-node"]);
+    expect(debBinaries(listing)).toEqual(["knowledge-vault-app", "kv-node"]);
     // tar -t of a Tauri deb: no leading ./, and bin/ folders deep in node_modules are not /usr/bin
-    expect(debBinaries("usr/bin\nusr/bin/desktop-knowledge-vault\nusr/bin/kv-node\nusr/lib/Knowledge Vault/sidecar/node_modules/x/bin/x.js")).toEqual(["desktop-knowledge-vault", "kv-node"]);
+    expect(debBinaries("usr/bin\nusr/bin/knowledge-vault-app\nusr/bin/kv-node\nusr/lib/Knowledge Vault/sidecar/node_modules/x/bin/x.js")).toEqual(["knowledge-vault-app", "kv-node"]);
   });
 });
