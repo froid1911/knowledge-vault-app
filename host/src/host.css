@@ -205,7 +205,7 @@ body, #root { margin: 0; min-height: 100vh; }
 .kv-identity-address { padding: 4px 8px; border: 1px solid var(--bai-border); border-radius: 6px; background: var(--bai-deep); color: var(--bai-text); cursor: pointer; }
 .kv-identity-waiting { margin: 0; font-weight: 500; }
 .kv-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
-.kv-link { padding: 0; border: 0; background: none; color: var(--bai-accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.kv-link { padding: 0; border: 0; background: none; color: var(--bai-accent); font: inherit; cursor: pointer; text-decoration: none; }
 .kv-tile-remote { margin: 2px 0 0; color: var(--bai-text-tertiary); font-size: 13px; }
 .kv-remote-check { margin: 0; color: var(--bai-text-secondary); }
 

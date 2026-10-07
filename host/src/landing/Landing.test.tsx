@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VaultGraphSample } from "../api/graph.js";
 import { Landing, type LandingApi } from "../screens/Landing.js";
@@ -38,6 +38,15 @@ afterEach(() => {
 });
 
 describe("Landing", () => {
+  it("first run, signed out: 'Sign in' in the hint does what the header's Sign in does", async () => {
+    const onIdentity = vi.fn();
+    render(<Landing engine={{ state: "ready" }} info={info} api={api()} onIdentity={onIdentity} storage={memoryStorage()} />);
+    expect(await screen.findByText("Create your first vault")).toBeTruthy();
+    const hint = screen.getByText(/Already have a vault on a server/);
+    expect(hint.textContent).toBe("Already have a vault on a server? Sign in, then connect it from here.");
+    fireEvent.click(within(hint).getByRole("button", { name: "Sign in" }));
+    expect(onIdentity).toHaveBeenCalledTimes(1);
+  });
   it("first run: the create form is the single target and Enter creates and opens the vault", async () => {
     const a = api();
     const onOpen = vi.fn();

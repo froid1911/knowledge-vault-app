@@ -281,7 +281,14 @@ export function Landing({ engine, info, identity, onOpen, onOpenRemote, onIdenti
               {signedIn ? (
                 <button type="button" className="kv-link" onClick={() => setConnecting(true)}>Connect a remote vault</button>
               ) : (
-                <>Sign in (Settings › Identity), then connect it from here.</>
+                <>
+                  {onIdentity ? (
+                    <button type="button" className="kv-link" onClick={onIdentity}>Sign in</button>
+                  ) : (
+                    "Sign in"
+                  )}
+                  , then connect it from here.
+                </>
               )}
             </p>
           </>
