@@ -8,11 +8,12 @@ import {
   useSelectedDriveSafe,
   type GraphQLReactorClient,
 } from "@powerhousedao/reactor-browser";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { DocumentEditorContainer } from "../components/DocumentEditorContainer.js";
 import { AppBar } from "../shell/AppBar.js";
 import { PipelineChip } from "../components/PipelineChip.js";
 import { followDrive } from "./follow-drive.js";
+import { fillConnection } from "../api/connections.js";
 import type { SidecarInfo } from "../sidecar.js";
 
 type Drives = NonNullable<Parameters<typeof setDrives>[0]>;
@@ -33,17 +34,30 @@ export function WorkspaceScreen(props: {
   onSettings?: () => void;
   /** A local vault's pipeline chip (spec §4.5): where to send the user for a model, and for the runs. */
   pipeline?: { info: SidecarInfo; onModels: () => void; onRuns: () => void };
+  /** The local engine, for apps whose documents it can fill in (Studio's Knowledge Vault connections). */
+  engine?: SidecarInfo;
 }) {
   const [ready, setReady] = useState(false);
   const [title, setTitle] = useState(props.fallbackTitle ?? "");
   const [error, setError] = useState<string | null>(null);
   const cache = useDocumentCache();
+  // The workspace's lifetime is the drive's: set up and torn down only when the drive changes.
+  // (Never on a cache swap — the vault app installs its own cache when it mounts, and tearing
+  // down on that would unmount it, remount it, and loop.)
+  const follow = useRef<{ last?: string; selected: boolean }>({ selected: false });
+  useEffect(() => {
+    follow.current = { selected: false };
+    return () => {
+      setSelectedNode(undefined);
+      setSelectedDrive(undefined);
+      setDrives([]);
+    };
+  }, [props.driveId, props.appId]);
+  // Following the drive is per cache: a swap re-subscribes, and an unchanged drive is not republished.
   useEffect(() => {
     if (!cache) return;
-    let selected = false;
-    // Every fresh copy goes into the drives slot (what the apps' drive hooks read);
-    // the drive is selected once, so later updates leave the history alone.
-    const stop = followDrive(
+    const state = follow.current;
+    return followDrive(
       cache,
       props.driveId,
       props.appId,
@@ -52,20 +66,15 @@ export function WorkspaceScreen(props: {
         const stateName = (drive.state as { global?: { name?: string } } | undefined)?.global?.name;
         setTitle(stateName || drive.header.name || props.fallbackTitle || "");
         setDrives([withMeta]);
-        if (!selected) {
-          selected = true;
+        if (!state.selected) {
+          state.selected = true;
           setSelectedDrive(withMeta); // the object: a string argument is taken as a slug
           setReady(true);
         }
       },
       (e) => setError(e.message),
+      state,
     );
-    return () => {
-      stop();
-      setSelectedNode(undefined);
-      setSelectedDrive(undefined);
-      setDrives([]);
-    };
   }, [cache, props.driveId, props.appId, props.fallbackTitle]);
 
   return (
@@ -74,13 +83,13 @@ export function WorkspaceScreen(props: {
         {props.pipeline && props.appId === "knowledge-vault" && <PipelineChip info={props.pipeline.info} vaultId={props.driveId} onModels={props.pipeline.onModels} onRuns={props.pipeline.onRuns} />}
       </AppBar>
       {error && <p role="alert" className="kv-error kv-main">Could not open this {props.appId === "workflow-studio" ? "workspace" : "vault"}: {error}</p>}
-      {ready ? <AppContainer /> : !error && <p role="status" className="kv-quiet kv-main">Opening…</p>}
+      {ready ? <AppContainer engine={props.engine} /> : !error && <p role="status" className="kv-quiet kv-main">Opening…</p>}
     </div>
   );
 }
 
 /** Connect's AppContainer, reduced: the drive app renders, with the selected document's editor as its children. */
-function AppContainer() {
+function AppContainer({ engine }: { engine?: SidecarInfo }) {
   const [selectedDrive] = useSelectedDriveSafe();
   const selectedDocumentId = useSelectedDocumentId();
   const app = useAppModuleById(selectedDrive?.header.meta?.preferredEditor);
@@ -90,7 +99,7 @@ function AppContainer() {
   return (
     <Suspense fallback={<p role="status">Loading the app…</p>}>
       <div className="kv-app">
-        <AppComponent>{selectedDocumentId ? <DocumentEditorContainer /> : null}</AppComponent>
+        <AppComponent>{selectedDocumentId ? <DocumentEditorContainer {...(engine ? { fillConnection: (id: string, token: boolean) => fillConnection(engine, id, token) } : {})} /> : null}</AppComponent>
       </div>
     </Suspense>
   );

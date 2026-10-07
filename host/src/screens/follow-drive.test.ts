@@ -31,6 +31,32 @@ describe("followDrive (keeps the drives slot in step with the drive, as Connect'
     stop();
   });
 
+  it("does not republish a drive that has not changed (a new object every time would make the apps re-read it, endlessly)", async () => {
+    const { cache, change } = fakeCache(drive(["a", "b"]));
+    const publish = vi.fn();
+    followDrive(cache, "d1", "workflow-studio", publish);
+    await flush();
+    for (let i = 0; i < 5; i++) {
+      change(drive(["a", "b"])); // the cache refetched; nothing changed
+      await flush();
+    }
+    expect(publish).toHaveBeenCalledTimes(1);
+    change(drive(["a"]));
+    await flush();
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not republish an unchanged drive when the cache is swapped (an app installing its own cache)", async () => {
+    const memo = {};
+    const publish = vi.fn();
+    const stopFirst = followDrive(fakeCache(drive(["a"])).cache, "d1", "knowledge-vault", publish, undefined, memo);
+    await flush();
+    stopFirst();
+    followDrive(fakeCache(drive(["a"])).cache, "d1", "knowledge-vault", publish, undefined, memo);
+    await flush();
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
   it("names the screen's app when the drive does not, and keeps the drive's own choice", async () => {
     const seen: unknown[] = [];
     followDrive(fakeCache(drive([])).cache, "d1", "workflow-studio", (d) => seen.push(d.header.meta?.preferredEditor));
