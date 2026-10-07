@@ -27,9 +27,6 @@ impl CrashWindow {
         self.crashes.push(now_ms);
         self.crashes.len() as u32
     }
-    pub fn reset(&mut self) {
-        self.crashes.clear();
-    }
 }
 #[cfg(test)]
 mod tests {
@@ -50,7 +47,5 @@ mod tests {
         assert_eq!(w.record(50_000), 3);
         assert_eq!(w.record(100_000), 4); // the fourth within two minutes: the caller gives up
         assert_eq!(w.record(300_000), 1); // everything earlier fell out of the window
-        w.reset();
-        assert_eq!(w.record(300_001), 1);
     }
 }

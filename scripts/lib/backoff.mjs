@@ -15,8 +15,5 @@ export function crashWindow(windowMs = 120_000) {
       crashes.push(nowMs);
       return crashes.length;
     },
-    reset() {
-      crashes = [];
-    },
   };
 }
