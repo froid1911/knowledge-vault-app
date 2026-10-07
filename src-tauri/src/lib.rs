@@ -82,6 +82,12 @@ fn quit_app(app: AppHandle) {
     quit(&app);
 }
 
+/// Whether the shell may move its working directory to the user's home: not inside an AppImage,
+/// whose bundled WebKit resolves its helper processes against the working directory.
+fn moves_to_home(appimage: Option<&std::ffi::OsStr>, appdir: Option<&std::ffi::OsStr>) -> bool {
+    appimage.is_none() && appdir.is_none()
+}
+
 pub fn run() {
     // Plan 6: an installed app (a release build) serves its host itself over loopback (host_server.rs)
     // and runs the engine it bundles. In development Vite serves the host on 4200 and the engine
@@ -96,8 +102,15 @@ pub fn run() {
             .and_then(|d| d.join("..").canonicalize().ok())
     };
     // A web page's file chooser opens in the process's working directory: start in the user's
-    // home, never the app's own folder (src-tauri/ in development, the AppImage's mount installed).
-    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+    // home, never the app's own folder (src-tauri/ in development, /usr/bin for the .deb). Not
+    // inside an AppImage: its WebKit finds its helper processes relative to the working directory
+    // (`././/lib/webkit2gtk-4.1/…`) and aborts at start without it; there the file dialog comes
+    // from the desktop's portal (below), a process of its own that opens in the user's home anyway.
+    if moves_to_home(
+        std::env::var_os("APPIMAGE").as_deref(),
+        std::env::var_os("APPDIR").as_deref(),
+    ) && let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+    {
         let _ = std::env::set_current_dir(home);
     }
     // Linux: the desktop's own file dialog (xdg-desktop-portal) rather than GTK's built-in one;
@@ -323,4 +336,23 @@ pub fn run() {
                 stop_sidecar_blocking(app);
             }
         });
+}
+
+#[cfg(test)]
+mod working_dir_tests {
+    use super::moves_to_home;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn stays_put_inside_an_appimage_and_moves_home_otherwise() {
+        assert!(moves_to_home(None, None));
+        assert!(!moves_to_home(
+            Some(OsStr::new("/home/u/Knowledge Vault.AppImage")),
+            Some(OsStr::new("/tmp/.mount_x"))
+        ));
+        assert!(!moves_to_home(
+            None,
+            Some(OsStr::new("/home/u/squashfs-root"))
+        ));
+    }
 }
