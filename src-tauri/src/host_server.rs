@@ -59,8 +59,33 @@ pub fn loopback_capability(default_capability_json: &str, port: u16) -> String {
     c.to_string()
 }
 
-/// A minimal policy that cannot break the vault app: no plugins, no framing, no base-URL hijack.
-const CSP: &str = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+/// A minimal policy that cannot break the vault app: no plugins or framing from anywhere but
+/// the app itself, no base-URL hijack. The app's own content is allowed on purpose: an original
+/// PDF is shown in a frame as a `blob:` of this page, which inherits this policy — and WebKit
+/// treats a PDF document as embedded content (object-src) that must accept being framed here.
+pub(crate) const CSP: &str = "object-src 'self' blob:; base-uri 'self'; frame-ancestors 'self'";
+
+#[cfg(test)]
+mod csp_tests {
+    use super::CSP;
+
+    #[test]
+    fn allows_the_apps_own_pdf_frames_and_nothing_from_elsewhere() {
+        assert!(
+            CSP.contains("frame-ancestors 'self'"),
+            "the app's own blob PDF must be frameable by the app"
+        );
+        assert!(
+            CSP.contains("object-src 'self' blob:"),
+            "a PDF document is embedded content"
+        );
+        assert!(CSP.contains("base-uri 'self'"));
+        assert!(
+            !CSP.contains('*') && !CSP.contains("https:") && !CSP.contains("data:"),
+            "no other origin or scheme may frame or embed"
+        );
+    }
+}
 
 /// Serves the embedded host until the process ends.
 pub fn serve<R: tauri::Runtime>(listener: TcpListener, port: u16, assets: tauri::AssetResolver<R>) {
