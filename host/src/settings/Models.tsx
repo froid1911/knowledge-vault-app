@@ -12,6 +12,7 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<{ ok: boolean; detail: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -45,6 +46,17 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
       setBusy(false);
     }
   }
+  async function validate() {
+    setBusy(true);
+    setVerdict(null);
+    try {
+      setVerdict(await api.validateModels(info));
+    } catch (err) {
+      setVerdict({ ok: false, detail: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
   async function removeKey() {
     setBusy(true);
     setError(null);
@@ -59,7 +71,7 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
 
   return (
     <div className="kv-settings-body">
-      <p className="kv-settings-lead">Any OpenAI-compatible provider: OpenRouter, OpenAI, or a local server such as Ollama or LM Studio. The chat uses it now; processing sources with it arrives with the pipeline.</p>
+      <p className="kv-settings-lead">Any OpenAI-compatible provider: OpenRouter, OpenAI, or a local server such as Ollama or LM Studio. The chat and the processing pipeline use it; a vault created after this is set up processes its sources on its own.</p>
       {settings === null && !error && <p className="kv-quiet" role="status">Loading…</p>}
       {settings && (
         <form className="kv-form" onSubmit={(e) => void submit(e)}>
@@ -77,8 +89,12 @@ export function ModelsSection({ info, api }: { info: SidecarInfo; api: SettingsA
           <p className="kv-hint">The key is stored by the engine on this computer (file mode 0600) and is never shown again.</p>
           <div className="kv-form-actions">
             <button type="submit" className="kv-button kv-button-primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+            {settings.models.hasKey && (
+              <button type="button" className="kv-button" disabled={busy} onClick={() => void validate()}>Validate</button>
+            )}
             {saved && <span className="kv-form-saved" role="status">Saved</span>}
           </div>
+          {verdict && <p role="status" className={verdict.ok ? "kv-form-saved" : "kv-error"}>{verdict.detail}</p>}
           {error && <p role="alert" className="kv-error">{error}</p>}
         </form>
       )}

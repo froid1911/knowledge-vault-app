@@ -10,6 +10,8 @@ import {
 import { Suspense, useEffect, useState } from "react";
 import { DocumentEditorContainer } from "../components/DocumentEditorContainer.js";
 import { AppBar } from "../shell/AppBar.js";
+import { PipelineChip } from "../components/PipelineChip.js";
+import type { SidecarInfo } from "../sidecar.js";
 
 type Drives = NonNullable<Parameters<typeof setDrives>[0]>;
 type DriveDoc = Drives[number];
@@ -20,7 +22,16 @@ export type WorkspaceApp = "knowledge-vault" | "workflow-studio";
  * Full view for one drive: a vault (the Knowledge Vault app) or the Workflows
  * drive (Workflow Studio). The app bar is the only shell chrome left on screen.
  */
-export function WorkspaceScreen(props: { client: GraphQLReactorClient; driveId: string; appId: WorkspaceApp; fallbackTitle?: string; onBack: () => void; onSettings?: () => void }) {
+export function WorkspaceScreen(props: {
+  client: GraphQLReactorClient;
+  driveId: string;
+  appId: WorkspaceApp;
+  fallbackTitle?: string;
+  onBack: () => void;
+  onSettings?: () => void;
+  /** A local vault's pipeline chip (spec §4.5): where to send the user for a model, and for the runs. */
+  pipeline?: { info: SidecarInfo; onModels: () => void; onRuns: () => void };
+}) {
   const [ready, setReady] = useState(false);
   const [title, setTitle] = useState(props.fallbackTitle ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +62,9 @@ export function WorkspaceScreen(props: { client: GraphQLReactorClient; driveId: 
 
   return (
     <div className="kv-vault-screen">
-      <AppBar title={title} onBack={props.onBack} onSettings={props.onSettings} />
+      <AppBar title={title} onBack={props.onBack} onSettings={props.onSettings}>
+        {props.pipeline && props.appId === "knowledge-vault" && <PipelineChip info={props.pipeline.info} vaultId={props.driveId} onModels={props.pipeline.onModels} onRuns={props.pipeline.onRuns} />}
+      </AppBar>
       {error && <p role="alert" className="kv-error kv-main">Could not open this {props.appId === "workflow-studio" ? "workspace" : "vault"}: {error}</p>}
       {ready ? <AppContainer /> : !error && <p role="status" className="kv-quiet kv-main">Opening…</p>}
     </div>

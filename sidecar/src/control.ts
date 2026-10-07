@@ -31,6 +31,8 @@ export type ControlDeps = {
   workflowsDrive: () => Promise<DriveRef>;
   readSettings: () => AppSettings;
   writeSettings: (patch: SettingsPatch) => AppSettings;
+  /** Settings › Models › Validate: the saved endpoint and key against the provider. */
+  validateModels: () => Promise<{ ok: boolean; detail: string }>;
   /** Spec §4.5: each vault's pipeline (template instantiation, status, removal). */
   pipelines: {
     ensure: (vaultId: string) => Promise<EnsureResult>;
@@ -196,6 +198,10 @@ export function createControlServer(deps: ControlDeps) {
         return send(res, 202, { restarting: true, ...result }, allowed);
       }
       if (req.method === "GET" && url.pathname === "/settings") return send(res, 200, deps.readSettings(), allowed);
+      if (req.method === "POST" && url.pathname === "/settings/models/validate") {
+        if (!deps.readSettings().models.hasKey) return send(res, 400, { error: "Save a key first." }, allowed);
+        return send(res, 200, await deps.validateModels(), allowed);
+      }
       if (req.method === "PUT" && url.pathname === "/settings") {
         const patch = settingsPatch(await readJson(req));
         const settings = deps.writeSettings(patch);

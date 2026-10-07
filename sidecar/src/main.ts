@@ -16,6 +16,7 @@ import { ensureSecret } from "./secrets.js";
 import { singleFlight } from "./single-flight.js";
 import { readModelKey, readSettings, writeSettings } from "./settings.js";
 import { createPipelineManager } from "./pipelines.js";
+import { validateModelEndpoint } from "./models-validate.js";
 import type { PipelineTemplate } from "./templates.js";
 import { createRequire } from "node:module";
 import { createProtectionSwitch } from "./protection.js";
@@ -159,6 +160,7 @@ async function main(): Promise<void> {
     pipelines,
     readSettings: () => readSettings(cfg.dataDir),
     writeSettings: (patch) => writeSettings(cfg.dataDir, patch),
+    validateModels: () => validateModelEndpoint(readSettings(cfg.dataDir).models.endpoint, readModelKey(cfg.dataDir) ?? ""),
     // Spec §4.4: the switch writes config.json's `local` section, answers, then the engine shuts down
     // and prints a restart line — whoever spawned it (the shell, the dev loop) starts it again with
     // KV_PROTECTED/KV_ADMIN_ADDRESS read from that section. The Switchboard's auth flags are fixed at

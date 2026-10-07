@@ -45,6 +45,7 @@ async function start() {
       add: async (url, drive) => { const v: RemoteVault = { kind: "remote", id: "c589", slug: drive ?? "pk", name: "powerhouse-knowledge", switchboardUrl: new URL(url).origin, addedAt: "2026-10-06T12:00:00.000Z" }; remotes = [v]; return v; },
       remove: (id) => { remotes = remotes.filter((v) => v.id !== id); },
     },
+    validateModels: async () => ({ ok: true, detail: "3 models available" }),
     pipelines: {
       ensure: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}` } : { state: "unconfigured" as const }),
       status: async (id: string) => (modelKey ? { state: "ready" as const, workflowId: `wf-${id}`, connectionId: `conn-${id}`, trigger: { status: "ENABLED", lastPollAt: null, lastError: null } } : { state: "unconfigured" as const }),
@@ -274,5 +275,19 @@ describe("pipelines over the control API", () => {
     expect((await (await fetch(`${base}/vaults/v1/pipeline`, { headers: h })).json()).pipeline.trigger.status).toBe("ENABLED");
     await fetch(`${base}/vaults/v1`, { method: "DELETE", headers: h });
     expect(removedPipelines).toEqual(["v1"]);
+  });
+});
+
+describe("model validation over the control API", () => {
+  const h = { authorization: "Bearer secret", "content-type": "application/json" };
+  it("needs a stored key, then answers the provider's verdict", async () => {
+    const base = await start();
+    const none = await fetch(`${base}/settings/models/validate`, { method: "POST", headers: h });
+    expect(none.status).toBe(400);
+    expect(await none.json()).toEqual({ error: "Save a key first." });
+    settings = { ...settings, models: { ...settings.models, hasKey: true } };
+    const ok = await fetch(`${base}/settings/models/validate`, { method: "POST", headers: h });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ ok: true, detail: "3 models available" });
   });
 });

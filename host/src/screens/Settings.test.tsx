@@ -38,6 +38,7 @@ function api(over: Partial<SettingsApi> = {}): SettingsApi {
     saveSettings: vi.fn(async (_i, patch: SettingsPatch) => ({ version: 1 as const, models: { endpoint: patch.models?.endpoint ?? "https://openrouter.ai/api/v1", model: patch.models?.model ?? "", hasKey: !!patch.models?.apiKey }, conversion: { mode: patch.conversion?.mode ?? ("local" as const), remoteUrl: patch.conversion?.remoteUrl ?? "" } })),
     fetchStatus: vi.fn(async () => ({ ok: true as const, port: 4301, controlPort: 4302, appVersion: "0.1.0", protected: false, dataDir: "/home/u/.local/share/kv/vault", stackVersion: "6.2.3-dev.44", vaultPackageVersion: "1.0.54-dev.22" })),
     fetchProtection: vi.fn(async () => ({ protected: false, adminAddress: null })),
+    validateModels: vi.fn(async () => ({ ok: false, detail: "The provider refused the key: Invalid API key" })),
     setProtection: vi.fn(async (_i, wanted: boolean) => ({ restarting: true, protected: wanted, adminAddress: "0xabc" })),
     fetchConverter: vi.fn(async () => converterReady),
     restartConverter: vi.fn(async () => converterReady),
@@ -89,6 +90,10 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(a.saveSettings).toHaveBeenLastCalledWith(info, { models: { endpoint: "http://127.0.0.1:11434/v1", model: "llama3", apiKey: "sk-new" } }));
     expect(await screen.findByRole("button", { name: "Remove key" })).toBeTruthy();
+    // Validate asks the engine to try the saved settings against the provider and shows its verdict.
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(a.validateModels).toHaveBeenCalledWith(info));
+    expect(await screen.findByText("The provider refused the key: Invalid API key")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
     fireEvent.click(screen.getByLabelText(/^Light/));

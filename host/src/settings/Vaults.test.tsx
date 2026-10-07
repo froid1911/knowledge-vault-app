@@ -31,6 +31,7 @@ function api(over: Partial<SettingsApi> = {}): SettingsApi {
     removeConverter: vi.fn(),
     fetchProtection: vi.fn(async () => ({ protected: false, adminAddress: null })),
     setProtection: vi.fn(async (_i, p: boolean) => ({ restarting: true, protected: p, adminAddress: "0xabcdef0123456789" })),
+    validateModels: vi.fn(async () => ({ ok: true, detail: "ok" })),
     ...over,
   } as SettingsApi;
 }

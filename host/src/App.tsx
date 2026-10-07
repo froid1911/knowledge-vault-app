@@ -65,7 +65,7 @@ export function App({ info, client, bearer }: { info: SidecarInfo; client: Graph
   let screen;
   switch (route.name) {
     case "vault":
-      screen = <WorkspaceScreen client={client} driveId={route.id} appId="knowledge-vault" onBack={toVaults} onSettings={toSettings} />;
+      screen = <WorkspaceScreen client={client} driveId={route.id} appId="knowledge-vault" onBack={toVaults} onSettings={toSettings} pipeline={{ info, onModels: () => navigate({ name: "settings", section: "models" }), onRuns: toWorkflows }} />;
       break;
     case "workflows":
       screen = <WorkflowsScreen info={info} client={client} onBack={toVaults} onSettings={toSettings} />;

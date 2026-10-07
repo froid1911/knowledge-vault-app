@@ -105,3 +105,26 @@ export async function installConverterComponent(info: SidecarInfo, component: Co
 export async function removeConverterComponent(info: SidecarInfo, component: ConverterComponent, fetchImpl: typeof fetch = fetch): Promise<ConverterStatus> {
   return control<ConverterStatus>(info, "/converter/remove", { method: "POST", body: JSON.stringify({ component }) }, fetchImpl);
 }
+
+/** Spec §4.5: a vault's pipeline as the engine reports it (sidecar/src/pipelines.ts). */
+export type PipelineStatus =
+  | { state: "unconfigured" }
+  | { state: "missing" }
+  | {
+      state: "ready";
+      workflowId: string;
+      connectionId: string;
+      trigger?: { status: string; lastPollAt: string | null; lastError: string | null };
+      lastRun?: { id: string; status: string; startedAt: string | null; endedAt: string | null; error: string | null };
+    };
+export async function fetchPipeline(info: SidecarInfo, vaultId: string, fetchImpl: typeof fetch = fetch): Promise<PipelineStatus> {
+  return (await control<{ pipeline: PipelineStatus }>(info, `/vaults/${encodeURIComponent(vaultId)}/pipeline`, { method: "GET" }, fetchImpl)).pipeline;
+}
+/** Create (or re-create) the vault's pipeline from the shipped template; 409 when no model is set up. */
+export async function setupPipeline(info: SidecarInfo, vaultId: string, fetchImpl: typeof fetch = fetch): Promise<PipelineStatus> {
+  return (await control<{ pipeline: PipelineStatus }>(info, `/vaults/${encodeURIComponent(vaultId)}/pipeline`, { method: "POST" }, fetchImpl)).pipeline;
+}
+/** The engine tries the saved model settings against the provider (one cheap request) and reports the verdict. */
+export async function validateModels(info: SidecarInfo, fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; detail: string }> {
+  return control<{ ok: boolean; detail: string }>(info, "/settings/models/validate", { method: "POST" }, fetchImpl);
+}

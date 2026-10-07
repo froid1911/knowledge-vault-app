@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createVault, fetchProtection, fetchVaults, setProtection } from "./vaults.js";
+import { createVault, fetchPipeline, fetchProtection, fetchVaults, setProtection, setupPipeline, validateModels } from "./vaults.js";
 
 const info = { origin: "http://127.0.0.1:4201", graphqlUrl: "http://127.0.0.1:4201/graphql", controlOrigin: "http://127.0.0.1:4202", controlToken: "secret" };
 
@@ -31,5 +31,22 @@ describe("local protection over the control API", () => {
     expect(calls[0]![0]).toBe("http://127.0.0.1:4202/local/protection");
     expect(calls[1]![1].method).toBe("PUT");
     expect(JSON.parse(String(calls[1]![1].body))).toEqual({ protected: true });
+  });
+});
+
+describe("pipeline + model validation over the control API", () => {
+  it("reads and sets up a vault's pipeline, and validates the model settings", async () => {
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/settings/models/validate")) return { ok: true, status: 200, json: async () => ({ ok: true, detail: "12 models available" }) };
+      return { ok: true, status: init?.method === "POST" ? 200 : 200, json: async () => ({ pipeline: init?.method === "POST" ? { state: "ready", workflowId: "wf", connectionId: "c" } : { state: "missing" } }) };
+    }) as unknown as typeof fetch;
+    expect(await fetchPipeline(info, "v1", fetchImpl)).toEqual({ state: "missing" });
+    expect(await setupPipeline(info, "v1", fetchImpl)).toEqual({ state: "ready", workflowId: "wf", connectionId: "c" });
+    expect(await validateModels(info, fetchImpl)).toEqual({ ok: true, detail: "12 models available" });
+    const calls = (fetchImpl as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    expect(calls[0]![0]).toBe("http://127.0.0.1:4202/vaults/v1/pipeline");
+    expect(calls[1]![1].method).toBe("POST");
+    expect(calls[2]![0]).toBe("http://127.0.0.1:4202/settings/models/validate");
   });
 });
